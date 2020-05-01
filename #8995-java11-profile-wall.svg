@@ -1,0 +1,2509 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="600" height="870" onload="init(evt)" viewBox="0 0 600 870" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<style type="text/css">
+	text { font-family:Verdana; font-size:12px; fill:rgb(0,0,0); }
+	#search { opacity:0.1; cursor:pointer; }
+	#search:hover, #search.show { opacity:1; }
+	#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+	#title { text-anchor:middle; font-size:17px}
+	#unzoom { cursor:pointer; }
+	#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+	.hide { display:none; }
+	.parent { opacity:0.5; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	"use strict";
+	var details, searchbtn, unzoombtn, matchedtxt, svg, searching;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		unzoombtn = document.getElementById("unzoom");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+	}
+
+	window.addEventListener("click", function(e) {
+		var target = find_group(e.target);
+		if (target) {
+			if (target.nodeName == "a") {
+				if (e.ctrlKey === false) return;
+				e.preventDefault();
+			}
+			if (target.classList.contains("parent")) unzoom();
+			zoom(target);
+		}
+		else if (e.target.id == "unzoom") unzoom();
+		else if (e.target.id == "search") search_prompt();
+	}, false)
+
+	// mouse-over for info
+	// show
+	window.addEventListener("mouseover", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = "Function: " + g_to_text(target);
+	}, false)
+
+	// clear
+	window.addEventListener("mouseout", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = ' ';
+	}, false)
+
+	// ctrl-F for search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+	}, false)
+
+	// functions
+	function find_child(node, selector) {
+		var children = node.querySelectorAll(selector);
+		if (children.length) return children[0];
+		return;
+	}
+	function find_group(node) {
+		var parent = node.parentElement;
+		if (!parent) return;
+		if (parent.id == "frames") return node;
+		return find_group(parent);
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_" + attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_" + attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes.width.value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes.x.value = parseFloat(r.attributes.x.value) + 3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2 * 12 * 0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		// Fit in full text width
+		if (/^ *$/.test(txt) || t.getSubStringLength(0, txt.length) < w)
+			return;
+
+		for (var x = txt.length - 2; x > 0; x--) {
+			if (t.getSubStringLength(0, x + 2) <= w) {
+				t.textContent = txt.substring(0, x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = (parseFloat(e.attributes.x.value) - x - 10) * ratio + 10;
+				if (e.tagName == "text")
+					e.attributes.x.value = find_child(e.parentNode, "rect[x]").attributes.x.value + 3;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseFloat(e.attributes.width.value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_child(c[i], x - 10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = 10;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseInt(svg.width.baseVal.value) - (10 * 2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr.width.value);
+		var xmin = parseFloat(attr.x.value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr.y.value);
+		var ratio = (svg.width.baseVal.value - 2 * 10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		unzoombtn.classList.remove("hide");
+
+		var el = document.getElementById("frames").children;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a.x.value);
+			var ew = parseFloat(a.width.value);
+			var upstack;
+			// Is it an ancestor
+			if (0 == 0) {
+				upstack = parseFloat(a.y.value) > ymin;
+			} else {
+				upstack = parseFloat(a.y.value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.classList.add("parent");
+					zoom_parent(e);
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.classList.add("hide");
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.classList.add("hide");
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					update_text(e);
+				}
+			}
+		}
+	}
+	function unzoom() {
+		unzoombtn.classList.add("hide");
+		var el = document.getElementById("frames").children;
+		for(var i = 0; i < el.length; i++) {
+			el[i].classList.remove("parent");
+			el[i].classList.remove("hide");
+			zoom_reset(el[i]);
+			update_text(el[i]);
+		}
+	}
+
+	// search
+	function reset_search() {
+		var el = document.querySelectorAll("#frames rect");
+		for (var i = 0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)", "");
+			if (term != null) {
+				search(term)
+			}
+		} else {
+			reset_search();
+			searching = 0;
+			searchbtn.classList.remove("show");
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.classList.add("hide");
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		var re = new RegExp(term);
+		var el = document.getElementById("frames").children;
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes.width.value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes.x.value);
+				orig_save(rect, "fill");
+				rect.attributes.fill.value = "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+
+		searchbtn.classList.add("show");
+		searchbtn.firstChild.nodeValue = "Reset Search";
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.classList.remove("hide");
+		var pct = 100 * count / maxwidth;
+		if (pct != 100) pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+]]>
+</script>
+<rect x="0" y="0" width="100%" height="100%" fill="rgb(240,240,220)"/>
+<text id="title" x="300" y="24">Flame Graph</text>
+<text id="details" x="10" y="853"> </text>
+<text id="unzoom" x="10" y="24" class="hide">Reset Zoom</text>
+<text id="search" x="490" y="24">Search</text>
+<text id="matched" x="490" y="853"> </text>
+<g id="frames">
+<g>
+<title>all (782,142 samples, 100.00%)</title><rect x="10.0" y="819.0" width="580.0" height="15" fill="#fa7b7b" rx="2" ry="2"/>
+<text x="13.0" y="830.0">all</text>
+</g>
+<g>
+<title>DevModeMain.main (23,313 samples, 2.98%)</title><rect x="10.2" y="803.0" width="17.3" height="15" fill="#5bec5b" rx="2" ry="2"/>
+<text x="13.2" y="814.0"></text>
+</g>
+<g>
+<title>DevModeMain.start (20,468 samples, 2.62%)</title><rect x="10.2" y="787.0" width="15.2" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="13.2" y="798.0"></text>
+</g>
+<g>
+<title>CuratedApplication.runInAugmentClassLoader (13,724 samples, 1.75%)</title><rect x="10.2" y="771.0" width="10.2" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="13.2" y="782.0"></text>
+</g>
+<g>
+<title>CuratedApplication.runInCl (13,699 samples, 1.75%)</title><rect x="10.2" y="755.0" width="10.2" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="13.2" y="766.0"></text>
+</g>
+<g>
+<title>IsolatedDevModeMain.accept (13,473 samples, 1.72%)</title><rect x="10.2" y="739.0" width="10.0" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="13.2" y="750.0"></text>
+</g>
+<g>
+<title>IsolatedDevModeMain.accept (13,473 samples, 1.72%)</title><rect x="10.2" y="723.0" width="10.0" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="13.2" y="734.0"></text>
+</g>
+<g>
+<title>IsolatedDevModeMain.firstStart (12,982 samples, 1.66%)</title><rect x="10.2" y="707.0" width="9.6" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="13.2" y="718.0"></text>
+</g>
+<g>
+<title>AugmentActionImpl.createInitialRuntimeApplication (4,937 samples, 0.63%)</title><rect x="10.2" y="691.0" width="3.7" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="13.2" y="702.0"></text>
+</g>
+<g>
+<title>AugmentActionImpl.createInitialRuntimeApplication (4,937 samples, 0.63%)</title><rect x="10.2" y="675.0" width="3.7" height="15" fill="#60f160" rx="2" ry="2"/>
+<text x="13.2" y="686.0"></text>
+</g>
+<g>
+<title>AugmentActionImpl.runAugment (4,899 samples, 0.63%)</title><rect x="10.2" y="659.0" width="3.7" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="13.2" y="670.0"></text>
+</g>
+<g>
+<title>QuarkusAugmentor.run (4,897 samples, 0.63%)</title><rect x="10.2" y="643.0" width="3.7" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="13.2" y="654.0"></text>
+</g>
+<g>
+<title>BuildExecutionBuilder.execute (4,422 samples, 0.57%)</title><rect x="10.2" y="627.0" width="3.3" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="13.2" y="638.0"></text>
+</g>
+<g>
+<title>Execution.run (4,339 samples, 0.55%)</title><rect x="10.3" y="611.0" width="3.2" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="13.3" y="622.0"></text>
+</g>
+<g>
+<title>LockSupport.park (4,319 samples, 0.55%)</title><rect x="10.3" y="595.0" width="3.2" height="15" fill="#6cfd6c" rx="2" ry="2"/>
+<text x="13.3" y="606.0"></text>
+</g>
+<g>
+<title>Unsafe.park (4,319 samples, 0.55%)</title><rect x="10.3" y="579.0" width="3.2" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="13.3" y="590.0"></text>
+</g>
+<g>
+<title>__pthread_cond_wait (4,319 samples, 0.55%)</title><rect x="10.3" y="563.0" width="3.2" height="15" fill="#f47373" rx="2" ry="2"/>
+<text x="13.3" y="574.0"></text>
+</g>
+<g>
+<title>ExtensionLoader.loadStepsFrom (440 samples, 0.06%)</title><rect x="13.5" y="627.0" width="0.3" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="16.5" y="638.0"></text>
+</g>
+<g>
+<title>StartupActionImpl.runMainClass (7,952 samples, 1.02%)</title><rect x="13.9" y="691.0" width="5.9" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="16.9" y="702.0"></text>
+</g>
+<g>
+<title>ApplicationStateNotification.waitForApplicationStart (7,951 samples, 1.02%)</title><rect x="13.9" y="675.0" width="5.9" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="16.9" y="686.0"></text>
+</g>
+<g>
+<title>Object.wait (7,951 samples, 1.02%)</title><rect x="13.9" y="659.0" width="5.9" height="15" fill="#50e150" rx="2" ry="2"/>
+<text x="16.9" y="670.0"></text>
+</g>
+<g>
+<title>Object.wait (7,951 samples, 1.02%)</title><rect x="13.9" y="643.0" width="5.9" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="16.9" y="654.0"></text>
+</g>
+<g>
+<title>__pthread_cond_wait (7,951 samples, 1.02%)</title><rect x="13.9" y="627.0" width="5.9" height="15" fill="#e55f5f" rx="2" ry="2"/>
+<text x="16.9" y="638.0"></text>
+</g>
+<g>
+<title>QuarkusBootstrap.bootstrap (6,739 samples, 0.86%)</title><rect x="20.4" y="771.0" width="5.0" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="23.4" y="782.0"></text>
+</g>
+<g>
+<title>BootstrapAppModelFactory.resolveAppModel (6,737 samples, 0.86%)</title><rect x="20.4" y="755.0" width="5.0" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="23.4" y="766.0"></text>
+</g>
+<g>
+<title>BootstrapAppModelFactory.getAppModelResolver (808 samples, 0.10%)</title><rect x="20.4" y="739.0" width="0.6" height="15" fill="#5ced5c" rx="2" ry="2"/>
+<text x="23.4" y="750.0"></text>
+</g>
+<g>
+<title>MavenArtifactResolver.&lt;init&gt; (768 samples, 0.10%)</title><rect x="20.4" y="723.0" width="0.6" height="15" fill="#53e453" rx="2" ry="2"/>
+<text x="23.4" y="734.0"></text>
+</g>
+<g>
+<title>BootstrapMavenContext.getRemoteRepositories (673 samples, 0.09%)</title><rect x="20.4" y="707.0" width="0.5" height="15" fill="#53e453" rx="2" ry="2"/>
+<text x="23.4" y="718.0"></text>
+</g>
+<g>
+<title>BootstrapMavenContext.resolveRemoteRepos (673 samples, 0.09%)</title><rect x="20.4" y="691.0" width="0.5" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="23.4" y="702.0"></text>
+</g>
+<g>
+<title>BootstrapMavenContext.resolveCurrentProjectRepos (666 samples, 0.09%)</title><rect x="20.4" y="675.0" width="0.5" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="23.4" y="686.0"></text>
+</g>
+<g>
+<title>DefaultRepositorySystem.readArtifactDescriptor (664 samples, 0.08%)</title><rect x="20.4" y="659.0" width="0.5" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="23.4" y="670.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.readArtifactDescriptor (664 samples, 0.08%)</title><rect x="20.4" y="643.0" width="0.5" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="23.4" y="654.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.loadPom (658 samples, 0.08%)</title><rect x="20.4" y="627.0" width="0.5" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="23.4" y="638.0"></text>
+</g>
+<g>
+<title>MavenModelBuilder.build (654 samples, 0.08%)</title><rect x="20.4" y="611.0" width="0.5" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="23.4" y="622.0"></text>
+</g>
+<g>
+<title>DefaultModelBuilder.build (651 samples, 0.08%)</title><rect x="20.4" y="595.0" width="0.5" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="23.4" y="606.0"></text>
+</g>
+<g>
+<title>DefaultModelBuilder.build (576 samples, 0.07%)</title><rect x="20.4" y="579.0" width="0.4" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="23.4" y="590.0"></text>
+</g>
+<g>
+<title>DefaultModelBuilder.build (576 samples, 0.07%)</title><rect x="20.4" y="563.0" width="0.4" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="23.4" y="574.0"></text>
+</g>
+<g>
+<title>DefaultModelBuilder.importDependencyManagement (575 samples, 0.07%)</title><rect x="20.4" y="547.0" width="0.4" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="23.4" y="558.0"></text>
+</g>
+<g>
+<title>DefaultModelResolver.resolveModel (499 samples, 0.06%)</title><rect x="20.5" y="531.0" width="0.3" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="23.5" y="542.0"></text>
+</g>
+<g>
+<title>DefaultArtifactResolver.resolveArtifact (499 samples, 0.06%)</title><rect x="20.5" y="515.0" width="0.3" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="23.5" y="526.0"></text>
+</g>
+<g>
+<title>DefaultArtifactResolver.resolveArtifacts (499 samples, 0.06%)</title><rect x="20.5" y="499.0" width="0.3" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="23.5" y="510.0"></text>
+</g>
+<g>
+<title>DefaultArtifactResolver.resolve (499 samples, 0.06%)</title><rect x="20.5" y="483.0" width="0.3" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="23.5" y="494.0"></text>
+</g>
+<g>
+<title>DefaultVersionResolver.resolveVersion (499 samples, 0.06%)</title><rect x="20.5" y="467.0" width="0.3" height="15" fill="#5ced5c" rx="2" ry="2"/>
+<text x="23.5" y="478.0"></text>
+</g>
+<g>
+<title>DefaultMetadataResolver.resolveMetadata (495 samples, 0.06%)</title><rect x="20.5" y="451.0" width="0.3" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="23.5" y="462.0"></text>
+</g>
+<g>
+<title>DefaultMetadataResolver.resolve (495 samples, 0.06%)</title><rect x="20.5" y="435.0" width="0.3" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="23.5" y="446.0"></text>
+</g>
+<g>
+<title>DefaultMetadataResolver$1.execute (491 samples, 0.06%)</title><rect x="20.5" y="419.0" width="0.3" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="23.5" y="430.0"></text>
+</g>
+<g>
+<title>RunnableErrorForwarder$1.run (491 samples, 0.06%)</title><rect x="20.5" y="403.0" width="0.3" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="23.5" y="414.0"></text>
+</g>
+<g>
+<title>DefaultMetadataResolver$ResolveTask.run (491 samples, 0.06%)</title><rect x="20.5" y="387.0" width="0.3" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="23.5" y="398.0"></text>
+</g>
+<g>
+<title>BootstrapAppModelResolver.resolveManagedModel (5,783 samples, 0.74%)</title><rect x="21.0" y="739.0" width="4.3" height="15" fill="#52e352" rx="2" ry="2"/>
+<text x="24.0" y="750.0"></text>
+</g>
+<g>
+<title>BootstrapAppModelResolver.doResolveModel (5,783 samples, 0.74%)</title><rect x="21.0" y="723.0" width="4.3" height="15" fill="#6cfd6c" rx="2" ry="2"/>
+<text x="24.0" y="734.0"></text>
+</g>
+<g>
+<title>DeploymentInjectingDependencyVisitor.injectDeploymentDependencies (2,090 samples, 0.27%)</title><rect x="21.1" y="707.0" width="1.5" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="24.1" y="718.0"></text>
+</g>
+<g>
+<title>DeploymentInjectingDependencyVisitor.collectDependencies (1,962 samples, 0.25%)</title><rect x="21.1" y="691.0" width="1.5" height="15" fill="#52e352" rx="2" ry="2"/>
+<text x="24.1" y="702.0"></text>
+</g>
+<g>
+<title>MavenArtifactResolver.collectManagedDependencies (1,962 samples, 0.25%)</title><rect x="21.1" y="675.0" width="1.5" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="24.1" y="686.0"></text>
+</g>
+<g>
+<title>DefaultRepositorySystem.collectDependencies (1,430 samples, 0.18%)</title><rect x="21.1" y="659.0" width="1.1" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="24.1" y="670.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.collectDependencies (1,430 samples, 0.18%)</title><rect x="21.1" y="643.0" width="1.1" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="24.1" y="654.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.process (1,320 samples, 0.17%)</title><rect x="21.2" y="627.0" width="1.0" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="24.2" y="638.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (1,320 samples, 0.17%)</title><rect x="21.2" y="611.0" width="1.0" height="15" fill="#51e251" rx="2" ry="2"/>
+<text x="24.2" y="622.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (1,320 samples, 0.17%)</title><rect x="21.2" y="595.0" width="1.0" height="15" fill="#50e150" rx="2" ry="2"/>
+<text x="24.2" y="606.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.doRecurse (958 samples, 0.12%)</title><rect x="21.2" y="579.0" width="0.7" height="15" fill="#5dee5d" rx="2" ry="2"/>
+<text x="24.2" y="590.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.process (946 samples, 0.12%)</title><rect x="21.2" y="563.0" width="0.7" height="15" fill="#51e251" rx="2" ry="2"/>
+<text x="24.2" y="574.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (946 samples, 0.12%)</title><rect x="21.2" y="547.0" width="0.7" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="24.2" y="558.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (946 samples, 0.12%)</title><rect x="21.2" y="531.0" width="0.7" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="24.2" y="542.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.doRecurse (499 samples, 0.06%)</title><rect x="21.2" y="515.0" width="0.4" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="24.2" y="526.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.process (491 samples, 0.06%)</title><rect x="21.2" y="499.0" width="0.4" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="24.2" y="510.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (491 samples, 0.06%)</title><rect x="21.2" y="483.0" width="0.4" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="24.2" y="494.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (491 samples, 0.06%)</title><rect x="21.2" y="467.0" width="0.4" height="15" fill="#60f160" rx="2" ry="2"/>
+<text x="24.2" y="478.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.getArtifactDescriptorResult (444 samples, 0.06%)</title><rect x="21.6" y="515.0" width="0.3" height="15" fill="#5bec5b" rx="2" ry="2"/>
+<text x="24.6" y="526.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.resolveCachedArtifactDescriptor (444 samples, 0.06%)</title><rect x="21.6" y="499.0" width="0.3" height="15" fill="#66f766" rx="2" ry="2"/>
+<text x="24.6" y="510.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.readArtifactDescriptor (443 samples, 0.06%)</title><rect x="21.6" y="483.0" width="0.3" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="24.6" y="494.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.loadPom (428 samples, 0.05%)</title><rect x="21.6" y="467.0" width="0.3" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="24.6" y="478.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.getArtifactDescriptorResult (361 samples, 0.05%)</title><rect x="21.9" y="579.0" width="0.3" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="24.9" y="590.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.resolveCachedArtifactDescriptor (361 samples, 0.05%)</title><rect x="21.9" y="563.0" width="0.3" height="15" fill="#51e251" rx="2" ry="2"/>
+<text x="24.9" y="574.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.readArtifactDescriptor (360 samples, 0.05%)</title><rect x="21.9" y="547.0" width="0.3" height="15" fill="#5dee5d" rx="2" ry="2"/>
+<text x="24.9" y="558.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.loadPom (347 samples, 0.04%)</title><rect x="21.9" y="531.0" width="0.3" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="24.9" y="542.0"></text>
+</g>
+<g>
+<title>MavenArtifactResolver.newCollectManagedRequest (532 samples, 0.07%)</title><rect x="22.2" y="659.0" width="0.4" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="25.2" y="670.0"></text>
+</g>
+<g>
+<title>MavenArtifactResolver.resolveDescriptorInternal (506 samples, 0.06%)</title><rect x="22.2" y="643.0" width="0.4" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="25.2" y="654.0"></text>
+</g>
+<g>
+<title>DefaultRepositorySystem.readArtifactDescriptor (506 samples, 0.06%)</title><rect x="22.2" y="627.0" width="0.4" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="25.2" y="638.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.readArtifactDescriptor (506 samples, 0.06%)</title><rect x="22.2" y="611.0" width="0.4" height="15" fill="#66f766" rx="2" ry="2"/>
+<text x="25.2" y="622.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.loadPom (479 samples, 0.06%)</title><rect x="22.2" y="595.0" width="0.4" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="25.2" y="606.0"></text>
+</g>
+<g>
+<title>DefaultVersionResolver.resolveVersion (404 samples, 0.05%)</title><rect x="22.2" y="579.0" width="0.3" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="25.2" y="590.0"></text>
+</g>
+<g>
+<title>DefaultMetadataResolver.resolveMetadata (399 samples, 0.05%)</title><rect x="22.2" y="563.0" width="0.3" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="25.2" y="574.0"></text>
+</g>
+<g>
+<title>DefaultMetadataResolver.resolve (399 samples, 0.05%)</title><rect x="22.2" y="547.0" width="0.3" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="25.2" y="558.0"></text>
+</g>
+<g>
+<title>RunnableErrorForwarder.await (386 samples, 0.05%)</title><rect x="22.2" y="531.0" width="0.3" height="15" fill="#5dee5d" rx="2" ry="2"/>
+<text x="25.2" y="542.0"></text>
+</g>
+<g>
+<title>RunnableErrorForwarder.awaitTerminationOfAllRunnables (386 samples, 0.05%)</title><rect x="22.2" y="515.0" width="0.3" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="25.2" y="526.0"></text>
+</g>
+<g>
+<title>LockSupport.park (386 samples, 0.05%)</title><rect x="22.2" y="499.0" width="0.3" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="25.2" y="510.0"></text>
+</g>
+<g>
+<title>Unsafe.park (386 samples, 0.05%)</title><rect x="22.2" y="483.0" width="0.3" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="25.2" y="494.0"></text>
+</g>
+<g>
+<title>__pthread_cond_wait (386 samples, 0.05%)</title><rect x="22.2" y="467.0" width="0.3" height="15" fill="#e76363" rx="2" ry="2"/>
+<text x="25.2" y="478.0"></text>
+</g>
+<g>
+<title>MavenArtifactResolver.resolveManagedDependencies (3,574 samples, 0.46%)</title><rect x="22.7" y="707.0" width="2.6" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="25.7" y="718.0"></text>
+</g>
+<g>
+<title>DefaultRepositorySystem.resolveDependencies (3,564 samples, 0.46%)</title><rect x="22.7" y="691.0" width="2.6" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="25.7" y="702.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.collectDependencies (3,541 samples, 0.45%)</title><rect x="22.7" y="675.0" width="2.6" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="25.7" y="686.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.process (3,471 samples, 0.44%)</title><rect x="22.7" y="659.0" width="2.6" height="15" fill="#6cfd6c" rx="2" ry="2"/>
+<text x="25.7" y="670.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (3,471 samples, 0.44%)</title><rect x="22.7" y="643.0" width="2.6" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="25.7" y="654.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (3,471 samples, 0.44%)</title><rect x="22.7" y="627.0" width="2.6" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="25.7" y="638.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.doRecurse (2,803 samples, 0.36%)</title><rect x="22.8" y="611.0" width="2.0" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="25.8" y="622.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.process (2,773 samples, 0.35%)</title><rect x="22.8" y="595.0" width="2.0" height="15" fill="#5dee5d" rx="2" ry="2"/>
+<text x="25.8" y="606.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (2,772 samples, 0.35%)</title><rect x="22.8" y="579.0" width="2.0" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="25.8" y="590.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (2,772 samples, 0.35%)</title><rect x="22.8" y="563.0" width="2.0" height="15" fill="#5bec5b" rx="2" ry="2"/>
+<text x="25.8" y="574.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.doRecurse (1,825 samples, 0.23%)</title><rect x="22.8" y="547.0" width="1.3" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="25.8" y="558.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.process (1,810 samples, 0.23%)</title><rect x="22.8" y="531.0" width="1.3" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="25.8" y="542.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (1,810 samples, 0.23%)</title><rect x="22.8" y="515.0" width="1.3" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="25.8" y="526.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (1,810 samples, 0.23%)</title><rect x="22.8" y="499.0" width="1.3" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="25.8" y="510.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.doRecurse (1,216 samples, 0.16%)</title><rect x="22.8" y="483.0" width="0.9" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="25.8" y="494.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.process (1,211 samples, 0.15%)</title><rect x="22.8" y="467.0" width="0.9" height="15" fill="#6cfd6c" rx="2" ry="2"/>
+<text x="25.8" y="478.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (1,211 samples, 0.15%)</title><rect x="22.8" y="451.0" width="0.9" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="25.8" y="462.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (1,211 samples, 0.15%)</title><rect x="22.8" y="435.0" width="0.9" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="25.8" y="446.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.doRecurse (662 samples, 0.08%)</title><rect x="22.8" y="419.0" width="0.5" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="25.8" y="430.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.process (648 samples, 0.08%)</title><rect x="22.8" y="403.0" width="0.5" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="25.8" y="414.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (648 samples, 0.08%)</title><rect x="22.8" y="387.0" width="0.5" height="15" fill="#5ced5c" rx="2" ry="2"/>
+<text x="25.8" y="398.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.processDependency (648 samples, 0.08%)</title><rect x="22.8" y="371.0" width="0.5" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="25.8" y="382.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.getArtifactDescriptorResult (394 samples, 0.05%)</title><rect x="23.0" y="355.0" width="0.3" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="26.0" y="366.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.resolveCachedArtifactDescriptor (394 samples, 0.05%)</title><rect x="23.0" y="339.0" width="0.3" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="26.0" y="350.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.readArtifactDescriptor (393 samples, 0.05%)</title><rect x="23.0" y="323.0" width="0.3" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="26.0" y="334.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.loadPom (385 samples, 0.05%)</title><rect x="23.0" y="307.0" width="0.3" height="15" fill="#5dee5d" rx="2" ry="2"/>
+<text x="26.0" y="318.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.getArtifactDescriptorResult (542 samples, 0.07%)</title><rect x="23.3" y="419.0" width="0.4" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="26.3" y="430.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.resolveCachedArtifactDescriptor (542 samples, 0.07%)</title><rect x="23.3" y="403.0" width="0.4" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="26.3" y="414.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.readArtifactDescriptor (538 samples, 0.07%)</title><rect x="23.3" y="387.0" width="0.4" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="26.3" y="398.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.loadPom (526 samples, 0.07%)</title><rect x="23.3" y="371.0" width="0.4" height="15" fill="#60f160" rx="2" ry="2"/>
+<text x="26.3" y="382.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.getArtifactDescriptorResult (588 samples, 0.08%)</title><rect x="23.7" y="483.0" width="0.4" height="15" fill="#5ced5c" rx="2" ry="2"/>
+<text x="26.7" y="494.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.resolveCachedArtifactDescriptor (588 samples, 0.08%)</title><rect x="23.7" y="467.0" width="0.4" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="26.7" y="478.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.readArtifactDescriptor (588 samples, 0.08%)</title><rect x="23.7" y="451.0" width="0.4" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="26.7" y="462.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.loadPom (575 samples, 0.07%)</title><rect x="23.7" y="435.0" width="0.4" height="15" fill="#53e453" rx="2" ry="2"/>
+<text x="26.7" y="446.0"></text>
+</g>
+<g>
+<title>MavenModelBuilder.build (365 samples, 0.05%)</title><rect x="23.9" y="419.0" width="0.2" height="15" fill="#53e453" rx="2" ry="2"/>
+<text x="26.9" y="430.0"></text>
+</g>
+<g>
+<title>DefaultModelBuilder.build (340 samples, 0.04%)</title><rect x="23.9" y="403.0" width="0.2" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="26.9" y="414.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.getArtifactDescriptorResult (938 samples, 0.12%)</title><rect x="24.1" y="547.0" width="0.7" height="15" fill="#66f766" rx="2" ry="2"/>
+<text x="27.1" y="558.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.resolveCachedArtifactDescriptor (938 samples, 0.12%)</title><rect x="24.1" y="531.0" width="0.7" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="27.1" y="542.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.readArtifactDescriptor (937 samples, 0.12%)</title><rect x="24.1" y="515.0" width="0.7" height="15" fill="#6cfd6c" rx="2" ry="2"/>
+<text x="27.1" y="526.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.loadPom (887 samples, 0.11%)</title><rect x="24.2" y="499.0" width="0.6" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="27.2" y="510.0"></text>
+</g>
+<g>
+<title>MavenModelBuilder.build (550 samples, 0.07%)</title><rect x="24.4" y="483.0" width="0.4" height="15" fill="#5bec5b" rx="2" ry="2"/>
+<text x="27.4" y="494.0"></text>
+</g>
+<g>
+<title>DefaultModelBuilder.build (535 samples, 0.07%)</title><rect x="24.4" y="467.0" width="0.4" height="15" fill="#66f766" rx="2" ry="2"/>
+<text x="27.4" y="478.0"></text>
+</g>
+<g>
+<title>DefaultModelBuilder.readParent (342 samples, 0.04%)</title><rect x="24.5" y="451.0" width="0.3" height="15" fill="#5bec5b" rx="2" ry="2"/>
+<text x="27.5" y="462.0"></text>
+</g>
+<g>
+<title>DefaultModelBuilder.readParentExternally (338 samples, 0.04%)</title><rect x="24.6" y="435.0" width="0.2" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="27.6" y="446.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.getArtifactDescriptorResult (666 samples, 0.09%)</title><rect x="24.8" y="611.0" width="0.5" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="27.8" y="622.0"></text>
+</g>
+<g>
+<title>DefaultDependencyCollector.resolveCachedArtifactDescriptor (666 samples, 0.09%)</title><rect x="24.8" y="595.0" width="0.5" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="27.8" y="606.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.readArtifactDescriptor (665 samples, 0.09%)</title><rect x="24.8" y="579.0" width="0.5" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="27.8" y="590.0"></text>
+</g>
+<g>
+<title>DefaultArtifactDescriptorReader.loadPom (605 samples, 0.08%)</title><rect x="24.9" y="563.0" width="0.4" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="27.9" y="574.0"></text>
+</g>
+<g>
+<title>MavenModelBuilder.build (374 samples, 0.05%)</title><rect x="25.0" y="547.0" width="0.3" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="28.0" y="558.0"></text>
+</g>
+<g>
+<title>DefaultModelBuilder.build (352 samples, 0.05%)</title><rect x="25.0" y="531.0" width="0.3" height="15" fill="#53e453" rx="2" ry="2"/>
+<text x="28.0" y="542.0"></text>
+</g>
+<g>
+<title>LockSupport.park (2,790 samples, 0.36%)</title><rect x="25.4" y="787.0" width="2.0" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="28.4" y="798.0"></text>
+</g>
+<g>
+<title>Unsafe.park (2,790 samples, 0.36%)</title><rect x="25.4" y="771.0" width="2.0" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="28.4" y="782.0"></text>
+</g>
+<g>
+<title>__pthread_cond_wait (2,790 samples, 0.36%)</title><rect x="25.4" y="755.0" width="2.0" height="15" fill="#f77777" rx="2" ry="2"/>
+<text x="28.4" y="766.0"></text>
+</g>
+<g>
+<title>Finalizer$FinalizerThread.run (23,718 samples, 3.03%)</title><rect x="27.5" y="803.0" width="17.6" height="15" fill="#52e352" rx="2" ry="2"/>
+<text x="30.5" y="814.0"></text>
+</g>
+<g>
+<title>ReferenceQueue.remove (23,717 samples, 3.03%)</title><rect x="27.5" y="787.0" width="17.6" height="15" fill="#6cfd6c" rx="2" ry="2"/>
+<text x="30.5" y="798.0"></text>
+</g>
+<g>
+<title>ReferenceQueue.remove (23,717 samples, 3.03%)</title><rect x="27.5" y="771.0" width="17.6" height="15" fill="#51e251" rx="2" ry="2"/>
+<text x="30.5" y="782.0"></text>
+</g>
+<g>
+<title>Object.wait (23,717 samples, 3.03%)</title><rect x="27.5" y="755.0" width="17.6" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="30.5" y="766.0"></text>
+</g>
+<g>
+<title>__pthread_cond_wait (23,717 samples, 3.03%)</title><rect x="27.5" y="739.0" width="17.6" height="15" fill="#e66161" rx="2" ry="2"/>
+<text x="30.5" y="750.0"></text>
+</g>
+<g>
+<title>ForkJoinWorkerThread.run (37,544 samples, 4.80%)</title><rect x="45.1" y="803.0" width="27.9" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="48.1" y="814.0">F..</text>
+</g>
+<g>
+<title>ForkJoinPool.runWorker (37,544 samples, 4.80%)</title><rect x="45.1" y="787.0" width="27.9" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="48.1" y="798.0">F..</text>
+</g>
+<g>
+<title>LockSupport.park (26,788 samples, 3.42%)</title><rect x="45.1" y="771.0" width="19.9" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="48.1" y="782.0"></text>
+</g>
+<g>
+<title>Unsafe.park (26,788 samples, 3.42%)</title><rect x="45.1" y="755.0" width="19.9" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="48.1" y="766.0"></text>
+</g>
+<g>
+<title>__pthread_cond_wait (26,788 samples, 3.42%)</title><rect x="45.1" y="739.0" width="19.9" height="15" fill="#fe8080" rx="2" ry="2"/>
+<text x="48.1" y="750.0"></text>
+</g>
+<g>
+<title>LockSupport.parkUntil (10,743 samples, 1.37%)</title><rect x="65.0" y="771.0" width="8.0" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="68.0" y="782.0"></text>
+</g>
+<g>
+<title>Unsafe.park (10,743 samples, 1.37%)</title><rect x="65.0" y="755.0" width="8.0" height="15" fill="#66f766" rx="2" ry="2"/>
+<text x="68.0" y="766.0"></text>
+</g>
+<g>
+<title>__pthread_cond_timedwait (10,743 samples, 1.37%)</title><rect x="65.0" y="739.0" width="8.0" height="15" fill="#e35d5d" rx="2" ry="2"/>
+<text x="68.0" y="750.0"></text>
+</g>
+<g>
+<title>InnocuousThread.run (23,677 samples, 3.03%)</title><rect x="73.0" y="803.0" width="17.5" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="76.0" y="814.0"></text>
+</g>
+<g>
+<title>Thread.run (23,677 samples, 3.03%)</title><rect x="73.0" y="787.0" width="17.5" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="76.0" y="798.0"></text>
+</g>
+<g>
+<title>CleanerImpl.run (23,677 samples, 3.03%)</title><rect x="73.0" y="771.0" width="17.5" height="15" fill="#52e352" rx="2" ry="2"/>
+<text x="76.0" y="782.0"></text>
+</g>
+<g>
+<title>ReferenceQueue.remove (23,658 samples, 3.02%)</title><rect x="73.0" y="755.0" width="17.5" height="15" fill="#52e352" rx="2" ry="2"/>
+<text x="76.0" y="766.0"></text>
+</g>
+<g>
+<title>Object.wait (23,657 samples, 3.02%)</title><rect x="73.0" y="739.0" width="17.5" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="76.0" y="750.0"></text>
+</g>
+<g>
+<title>__pthread_cond_timedwait (23,657 samples, 3.02%)</title><rect x="73.0" y="723.0" width="17.5" height="15" fill="#ee6c6c" rx="2" ry="2"/>
+<text x="76.0" y="734.0"></text>
+</g>
+<g>
+<title>JBossThread.run (221,637 samples, 28.34%)</title><rect x="90.5" y="803.0" width="164.4" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="93.5" y="814.0">JBossThread.run</text>
+</g>
+<g>
+<title>Thread.run (221,625 samples, 28.34%)</title><rect x="90.5" y="787.0" width="164.4" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="93.5" y="798.0">Thread.run</text>
+</g>
+<g>
+<title>EnhancedQueueExecutor$ThreadBody.run (171,978 samples, 21.99%)</title><rect x="90.5" y="771.0" width="127.6" height="15" fill="#66f766" rx="2" ry="2"/>
+<text x="93.5" y="782.0">EnhancedQueueExe..</text>
+</g>
+<g>
+<title>EnhancedQueueExecutor$PoolThreadNode.park (166,263 samples, 21.26%)</title><rect x="90.7" y="755.0" width="123.2" height="15" fill="#51e251" rx="2" ry="2"/>
+<text x="93.7" y="766.0">EnhancedQueueEx..</text>
+</g>
+<g>
+<title>LockSupport.parkNanos (166,250 samples, 21.26%)</title><rect x="90.7" y="739.0" width="123.2" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="93.7" y="750.0">LockSupport.par..</text>
+</g>
+<g>
+<title>Unsafe.park (166,250 samples, 21.26%)</title><rect x="90.7" y="723.0" width="123.2" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="93.7" y="734.0">Unsafe.park</text>
+</g>
+<g>
+<title>__pthread_cond_timedwait (166,150 samples, 21.24%)</title><rect x="90.7" y="707.0" width="123.2" height="15" fill="#e76262" rx="2" ry="2"/>
+<text x="93.7" y="718.0">__pthread_cond_..</text>
+</g>
+<g>
+<title>EnhancedQueueExecutor$ThreadBody.doRunTask (5,515 samples, 0.71%)</title><rect x="213.9" y="755.0" width="4.1" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="216.9" y="766.0"></text>
+</g>
+<g>
+<title>EnhancedQueueExecutor.safeRun (5,515 samples, 0.71%)</title><rect x="213.9" y="739.0" width="4.1" height="15" fill="#53e453" rx="2" ry="2"/>
+<text x="216.9" y="750.0"></text>
+</g>
+<g>
+<title>ContextClassLoaderSavingRunnable.run (5,515 samples, 0.71%)</title><rect x="213.9" y="723.0" width="4.1" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="216.9" y="734.0"></text>
+</g>
+<g>
+<title>1734883772.run (5,032 samples, 0.64%)</title><rect x="213.9" y="707.0" width="3.8" height="15" fill="#e25c5c" rx="2" ry="2"/>
+<text x="216.9" y="718.0"></text>
+</g>
+<g>
+<title>BuildContext.run (5,032 samples, 0.64%)</title><rect x="213.9" y="691.0" width="3.8" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="216.9" y="702.0"></text>
+</g>
+<g>
+<title>ExtensionLoader$2.execute (5,016 samples, 0.64%)</title><rect x="214.0" y="675.0" width="3.7" height="15" fill="#52e352" rx="2" ry="2"/>
+<text x="217.0" y="686.0"></text>
+</g>
+<g>
+<title>Method.invoke (4,708 samples, 0.60%)</title><rect x="214.2" y="659.0" width="3.5" height="15" fill="#50e150" rx="2" ry="2"/>
+<text x="217.2" y="670.0"></text>
+</g>
+<g>
+<title>DelegatingMethodAccessorImpl.invoke (4,704 samples, 0.60%)</title><rect x="214.2" y="643.0" width="3.5" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="217.2" y="654.0"></text>
+</g>
+<g>
+<title>NativeMethodAccessorImpl.invoke (4,704 samples, 0.60%)</title><rect x="214.2" y="627.0" width="3.5" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="217.2" y="638.0"></text>
+</g>
+<g>
+<title>NativeMethodAccessorImpl.invoke0 (4,704 samples, 0.60%)</title><rect x="214.2" y="611.0" width="3.5" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="217.2" y="622.0"></text>
+</g>
+<g>
+<title>ApplicationArchiveBuildStep.build (393 samples, 0.05%)</title><rect x="214.2" y="595.0" width="0.3" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="217.2" y="606.0"></text>
+</g>
+<g>
+<title>ApplicationArchiveBuildStep.scanForOtherIndexes (393 samples, 0.05%)</title><rect x="214.2" y="579.0" width="0.3" height="15" fill="#5bec5b" rx="2" ry="2"/>
+<text x="217.2" y="590.0"></text>
+</g>
+<g>
+<title>ApplicationArchiveBuildStep.indexPaths (375 samples, 0.05%)</title><rect x="214.2" y="563.0" width="0.3" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="217.2" y="574.0"></text>
+</g>
+<g>
+<title>ArcProcessor.generateResources (1,166 samples, 0.15%)</title><rect x="214.5" y="595.0" width="0.8" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="217.5" y="606.0"></text>
+</g>
+<g>
+<title>BeanProcessor.generateResources (1,160 samples, 0.15%)</title><rect x="214.5" y="579.0" width="0.8" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="217.5" y="590.0"></text>
+</g>
+<g>
+<title>BeanGenerator.generate (405 samples, 0.05%)</title><rect x="214.5" y="563.0" width="0.3" height="15" fill="#60f160" rx="2" ry="2"/>
+<text x="217.5" y="574.0"></text>
+</g>
+<g>
+<title>BeanGenerator.generateClassBean (387 samples, 0.05%)</title><rect x="214.5" y="547.0" width="0.3" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="217.5" y="558.0"></text>
+</g>
+<g>
+<title>ClientProxyGenerator.generate (346 samples, 0.04%)</title><rect x="214.8" y="563.0" width="0.2" height="15" fill="#5dee5d" rx="2" ry="2"/>
+<text x="217.8" y="574.0"></text>
+</g>
+<g>
+<title>ArcProcessor.registerBeans (410 samples, 0.05%)</title><rect x="215.4" y="595.0" width="0.3" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="218.4" y="606.0"></text>
+</g>
+<g>
+<title>BeanProcessor.registerBeans (410 samples, 0.05%)</title><rect x="215.4" y="579.0" width="0.3" height="15" fill="#52e352" rx="2" ry="2"/>
+<text x="218.4" y="590.0"></text>
+</g>
+<g>
+<title>BeanDeployment.registerBeans (410 samples, 0.05%)</title><rect x="215.4" y="563.0" width="0.3" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="218.4" y="574.0"></text>
+</g>
+<g>
+<title>BeanDeployment.findBeans (404 samples, 0.05%)</title><rect x="215.4" y="547.0" width="0.3" height="15" fill="#66f766" rx="2" ry="2"/>
+<text x="218.4" y="558.0"></text>
+</g>
+<g>
+<title>ArcProcessor.validate (404 samples, 0.05%)</title><rect x="215.7" y="595.0" width="0.3" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="218.7" y="606.0"></text>
+</g>
+<g>
+<title>BeanProcessor.initialize (402 samples, 0.05%)</title><rect x="215.7" y="579.0" width="0.3" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="218.7" y="590.0"></text>
+</g>
+<g>
+<title>BeanDeployment.init (402 samples, 0.05%)</title><rect x="215.7" y="563.0" width="0.3" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="218.7" y="574.0"></text>
+</g>
+<g>
+<title>BeanInfo.init (388 samples, 0.05%)</title><rect x="215.7" y="547.0" width="0.2" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="218.7" y="558.0"></text>
+</g>
+<g>
+<title>HibernateOrmProcessor.build (1,086 samples, 0.14%)</title><rect x="216.1" y="595.0" width="0.8" height="15" fill="#66f766" rx="2" ry="2"/>
+<text x="219.1" y="606.0"></text>
+</g>
+<g>
+<title>HibernateOrmProcessor.generatedProxies (1,052 samples, 0.13%)</title><rect x="216.1" y="579.0" width="0.8" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="219.1" y="590.0"></text>
+</g>
+<g>
+<title>ByteBuddyProxyHelper.buildUnloadedProxy (921 samples, 0.12%)</title><rect x="216.1" y="563.0" width="0.7" height="15" fill="#51e251" rx="2" ry="2"/>
+<text x="219.1" y="574.0"></text>
+</g>
+<g>
+<title>ByteBuddyState.make (921 samples, 0.12%)</title><rect x="216.1" y="547.0" width="0.7" height="15" fill="#66f766" rx="2" ry="2"/>
+<text x="219.1" y="558.0"></text>
+</g>
+<g>
+<title>ByteBuddyState.make (889 samples, 0.11%)</title><rect x="216.1" y="531.0" width="0.7" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="219.1" y="542.0"></text>
+</g>
+<g>
+<title>ByteBuddyState.make (889 samples, 0.11%)</title><rect x="216.1" y="515.0" width="0.7" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="219.1" y="526.0"></text>
+</g>
+<g>
+<title>DynamicType$Builder$AbstractBase$Delegator.make (889 samples, 0.11%)</title><rect x="216.1" y="499.0" width="0.7" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="219.1" y="510.0"></text>
+</g>
+<g>
+<title>DynamicType$Builder$AbstractBase.make (889 samples, 0.11%)</title><rect x="216.1" y="483.0" width="0.7" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="219.1" y="494.0"></text>
+</g>
+<g>
+<title>SubclassDynamicTypeBuilder.make (888 samples, 0.11%)</title><rect x="216.1" y="467.0" width="0.7" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="219.1" y="478.0"></text>
+</g>
+<g>
+<title>SubclassDynamicTypeBuilder.make (886 samples, 0.11%)</title><rect x="216.1" y="451.0" width="0.7" height="15" fill="#66f766" rx="2" ry="2"/>
+<text x="219.1" y="462.0"></text>
+</g>
+<g>
+<title>TypeWriter$Default.make (539 samples, 0.07%)</title><rect x="216.4" y="435.0" width="0.4" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="219.4" y="446.0"></text>
+</g>
+<g>
+<title>TypeWriter$Default$ForCreation.create (536 samples, 0.07%)</title><rect x="216.4" y="419.0" width="0.4" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="219.4" y="430.0"></text>
+</g>
+<g>
+<title>TypeWriter$MethodPool$Record$ForDefinedMethod.apply (453 samples, 0.06%)</title><rect x="216.4" y="403.0" width="0.4" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="219.4" y="414.0"></text>
+</g>
+<g>
+<title>HibernateValidatorProcessor.build (491 samples, 0.06%)</title><rect x="216.9" y="595.0" width="0.4" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="219.9" y="606.0"></text>
+</g>
+<g>
+<title>BytecodeRecorderImpl.classProxy (435 samples, 0.06%)</title><rect x="216.9" y="579.0" width="0.3" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="219.9" y="590.0"></text>
+</g>
+<g>
+<title>ProxyFactory.defineClass (409 samples, 0.05%)</title><rect x="216.9" y="563.0" width="0.3" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="219.9" y="574.0"></text>
+</g>
+<g>
+<title>ProxyFactory.doDefineClass (401 samples, 0.05%)</title><rect x="216.9" y="547.0" width="0.3" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="219.9" y="558.0"></text>
+</g>
+<g>
+<title>1965388767.run (483 samples, 0.06%)</title><rect x="217.7" y="707.0" width="0.3" height="15" fill="#e35d5d" rx="2" ry="2"/>
+<text x="220.7" y="718.0"></text>
+</g>
+<g>
+<title>BuildContext.run (483 samples, 0.06%)</title><rect x="217.7" y="691.0" width="0.3" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="220.7" y="702.0"></text>
+</g>
+<g>
+<title>ExtensionLoader$2.execute (468 samples, 0.06%)</title><rect x="217.7" y="675.0" width="0.3" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="220.7" y="686.0"></text>
+</g>
+<g>
+<title>ThreadLocalResettingRunnable.run (49,647 samples, 6.35%)</title><rect x="218.1" y="771.0" width="36.8" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="221.1" y="782.0">Thr..</text>
+</g>
+<g>
+<title>DelegatingRunnable.run (49,647 samples, 6.35%)</title><rect x="218.1" y="755.0" width="36.8" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="221.1" y="766.0">Del..</text>
+</g>
+<g>
+<title>EnhancedQueueExecutor$ThreadBody.run (49,647 samples, 6.35%)</title><rect x="218.1" y="739.0" width="36.8" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="221.1" y="750.0">Enh..</text>
+</g>
+<g>
+<title>EnhancedQueueExecutor$PoolThreadNode.park (47,419 samples, 6.06%)</title><rect x="218.1" y="723.0" width="35.2" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="221.1" y="734.0">Enh..</text>
+</g>
+<g>
+<title>LockSupport.parkNanos (47,418 samples, 6.06%)</title><rect x="218.1" y="707.0" width="35.2" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="221.1" y="718.0">Loc..</text>
+</g>
+<g>
+<title>Unsafe.park (47,418 samples, 6.06%)</title><rect x="218.1" y="691.0" width="35.2" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="221.1" y="702.0">Uns..</text>
+</g>
+<g>
+<title>__pthread_cond_timedwait (47,418 samples, 6.06%)</title><rect x="218.1" y="675.0" width="35.2" height="15" fill="#e35c5c" rx="2" ry="2"/>
+<text x="221.1" y="686.0">__p..</text>
+</g>
+<g>
+<title>EnhancedQueueExecutor$ThreadBody.doRunTask (2,143 samples, 0.27%)</title><rect x="253.3" y="723.0" width="1.6" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="256.3" y="734.0"></text>
+</g>
+<g>
+<title>EnhancedQueueExecutor.safeRun (2,143 samples, 0.27%)</title><rect x="253.3" y="707.0" width="1.6" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="256.3" y="718.0"></text>
+</g>
+<g>
+<title>ContextClassLoaderSavingRunnable.run (2,143 samples, 0.27%)</title><rect x="253.3" y="691.0" width="1.6" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="256.3" y="702.0"></text>
+</g>
+<g>
+<title>FutureTask.run (2,143 samples, 0.27%)</title><rect x="253.3" y="675.0" width="1.6" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="256.3" y="686.0"></text>
+</g>
+<g>
+<title>Executors$RunnableAdapter.call (2,143 samples, 0.27%)</title><rect x="253.3" y="659.0" width="1.6" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="256.3" y="670.0"></text>
+</g>
+<g>
+<title>CleanableExecutor$CleaningRunnable.run (2,143 samples, 0.27%)</title><rect x="253.3" y="643.0" width="1.6" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="256.3" y="654.0"></text>
+</g>
+<g>
+<title>SimpleScheduler$2.run (2,143 samples, 0.27%)</title><rect x="253.3" y="627.0" width="1.6" height="15" fill="#60f160" rx="2" ry="2"/>
+<text x="256.3" y="638.0"></text>
+</g>
+<g>
+<title>BeanInvoker.invoke (2,143 samples, 0.27%)</title><rect x="253.3" y="611.0" width="1.6" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="256.3" y="622.0"></text>
+</g>
+<g>
+<title>ReaperThread.run (3,125 samples, 0.40%)</title><rect x="255.0" y="803.0" width="2.3" height="15" fill="#53e453" rx="2" ry="2"/>
+<text x="258.0" y="814.0"></text>
+</g>
+<g>
+<title>Object.wait (3,125 samples, 0.40%)</title><rect x="255.0" y="787.0" width="2.3" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="258.0" y="798.0"></text>
+</g>
+<g>
+<title>__pthread_cond_timedwait (3,125 samples, 0.40%)</title><rect x="255.0" y="771.0" width="2.3" height="15" fill="#f27171" rx="2" ry="2"/>
+<text x="258.0" y="782.0"></text>
+</g>
+<g>
+<title>ReaperWorkerThread.run (3,118 samples, 0.40%)</title><rect x="257.3" y="803.0" width="2.3" height="15" fill="#6cfd6c" rx="2" ry="2"/>
+<text x="260.3" y="814.0"></text>
+</g>
+<g>
+<title>TransactionReaper.waitForCancellations (3,118 samples, 0.40%)</title><rect x="257.3" y="787.0" width="2.3" height="15" fill="#5dee5d" rx="2" ry="2"/>
+<text x="260.3" y="798.0"></text>
+</g>
+<g>
+<title>Object.wait (3,118 samples, 0.40%)</title><rect x="257.3" y="771.0" width="2.3" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="260.3" y="782.0"></text>
+</g>
+<g>
+<title>Object.wait (3,118 samples, 0.40%)</title><rect x="257.3" y="755.0" width="2.3" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="260.3" y="766.0"></text>
+</g>
+<g>
+<title>__pthread_cond_wait (3,118 samples, 0.40%)</title><rect x="257.3" y="739.0" width="2.3" height="15" fill="#ee6b6b" rx="2" ry="2"/>
+<text x="260.3" y="750.0"></text>
+</g>
+<g>
+<title>Reference$ReferenceHandler.run (23,704 samples, 3.03%)</title><rect x="259.6" y="803.0" width="17.6" height="15" fill="#50e150" rx="2" ry="2"/>
+<text x="262.6" y="814.0"></text>
+</g>
+<g>
+<title>Reference.processPendingReferences (23,704 samples, 3.03%)</title><rect x="259.6" y="787.0" width="17.6" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="262.6" y="798.0"></text>
+</g>
+<g>
+<title>Reference.waitForReferencePendingList (23,702 samples, 3.03%)</title><rect x="259.6" y="771.0" width="17.6" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="262.6" y="782.0"></text>
+</g>
+<g>
+<title>__pthread_cond_wait (23,702 samples, 3.03%)</title><rect x="259.6" y="755.0" width="17.6" height="15" fill="#f97b7b" rx="2" ry="2"/>
+<text x="262.6" y="766.0"></text>
+</g>
+<g>
+<title>Thread.run (62,003 samples, 7.93%)</title><rect x="277.2" y="803.0" width="46.0" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="280.2" y="814.0">Thre..</text>
+</g>
+<g>
+<title>AsyncHandler$AsyncTask.run (8,888 samples, 1.14%)</title><rect x="277.2" y="787.0" width="6.6" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="280.2" y="798.0"></text>
+</g>
+<g>
+<title>ArrayBlockingQueue.take (8,881 samples, 1.14%)</title><rect x="277.2" y="771.0" width="6.6" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="280.2" y="782.0"></text>
+</g>
+<g>
+<title>AbstractQueuedSynchronizer$ConditionObject.await (8,880 samples, 1.14%)</title><rect x="277.2" y="755.0" width="6.6" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="280.2" y="766.0"></text>
+</g>
+<g>
+<title>LockSupport.park (8,876 samples, 1.13%)</title><rect x="277.2" y="739.0" width="6.6" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="280.2" y="750.0"></text>
+</g>
+<g>
+<title>Unsafe.park (8,876 samples, 1.13%)</title><rect x="277.2" y="723.0" width="6.6" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="280.2" y="734.0"></text>
+</g>
+<g>
+<title>__pthread_cond_wait (8,875 samples, 1.13%)</title><rect x="277.2" y="707.0" width="6.6" height="15" fill="#e66161" rx="2" ry="2"/>
+<text x="280.2" y="718.0"></text>
+</g>
+<g>
+<title>FastThreadLocalRunnable.run (25,549 samples, 3.27%)</title><rect x="283.8" y="787.0" width="18.9" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="286.8" y="798.0"></text>
+</g>
+<g>
+<title>ThreadExecutorMap$2.run (25,548 samples, 3.27%)</title><rect x="283.8" y="771.0" width="18.9" height="15" fill="#51e251" rx="2" ry="2"/>
+<text x="286.8" y="782.0"></text>
+</g>
+<g>
+<title>SingleThreadEventExecutor$4.run (25,546 samples, 3.27%)</title><rect x="283.8" y="755.0" width="18.9" height="15" fill="#5ced5c" rx="2" ry="2"/>
+<text x="286.8" y="766.0"></text>
+</g>
+<g>
+<title>NioEventLoop.run (25,546 samples, 3.27%)</title><rect x="283.8" y="739.0" width="18.9" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="286.8" y="750.0"></text>
+</g>
+<g>
+<title>NioEventLoop.select (25,284 samples, 3.23%)</title><rect x="283.8" y="723.0" width="18.8" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="286.8" y="734.0"></text>
+</g>
+<g>
+<title>SelectedSelectionKeySetSelector.select (25,284 samples, 3.23%)</title><rect x="283.8" y="707.0" width="18.8" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="286.8" y="718.0"></text>
+</g>
+<g>
+<title>SelectorImpl.select (25,283 samples, 3.23%)</title><rect x="283.8" y="691.0" width="18.8" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="286.8" y="702.0"></text>
+</g>
+<g>
+<title>SelectorImpl.lockAndDoSelect (25,283 samples, 3.23%)</title><rect x="283.8" y="675.0" width="18.8" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="286.8" y="686.0"></text>
+</g>
+<g>
+<title>EPollSelectorImpl.doSelect (25,282 samples, 3.23%)</title><rect x="283.8" y="659.0" width="18.7" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="286.8" y="670.0"></text>
+</g>
+<g>
+<title>EPoll.wait (25,278 samples, 3.23%)</title><rect x="283.8" y="643.0" width="18.7" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="286.8" y="654.0"></text>
+</g>
+<g>
+<title>__GI_epoll_pwait (25,277 samples, 3.23%)</title><rect x="283.8" y="627.0" width="18.7" height="15" fill="#f67777" rx="2" ry="2"/>
+<text x="286.8" y="638.0"></text>
+</g>
+<g>
+<title>StartupActionImpl$3.run (10,237 samples, 1.31%)</title><rect x="302.8" y="787.0" width="7.6" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="305.8" y="798.0"></text>
+</g>
+<g>
+<title>Method.invoke (10,237 samples, 1.31%)</title><rect x="302.8" y="771.0" width="7.6" height="15" fill="#66f766" rx="2" ry="2"/>
+<text x="305.8" y="782.0"></text>
+</g>
+<g>
+<title>DelegatingMethodAccessorImpl.invoke (10,237 samples, 1.31%)</title><rect x="302.8" y="755.0" width="7.6" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="305.8" y="766.0"></text>
+</g>
+<g>
+<title>NativeMethodAccessorImpl.invoke (10,237 samples, 1.31%)</title><rect x="302.8" y="739.0" width="7.6" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="305.8" y="750.0"></text>
+</g>
+<g>
+<title>NativeMethodAccessorImpl.invoke0 (10,237 samples, 1.31%)</title><rect x="302.8" y="723.0" width="7.6" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="305.8" y="734.0"></text>
+</g>
+<g>
+<title>GeneratedMain.main (10,237 samples, 1.31%)</title><rect x="302.8" y="707.0" width="7.6" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="305.8" y="718.0"></text>
+</g>
+<g>
+<title>Quarkus.run (10,237 samples, 1.31%)</title><rect x="302.8" y="691.0" width="7.6" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="305.8" y="702.0"></text>
+</g>
+<g>
+<title>Quarkus.run (10,237 samples, 1.31%)</title><rect x="302.8" y="675.0" width="7.6" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="305.8" y="686.0"></text>
+</g>
+<g>
+<title>Quarkus.run (10,237 samples, 1.31%)</title><rect x="302.8" y="659.0" width="7.6" height="15" fill="#52e352" rx="2" ry="2"/>
+<text x="305.8" y="670.0"></text>
+</g>
+<g>
+<title>ApplicationLifecycleManager.run (4,468 samples, 0.57%)</title><rect x="302.8" y="643.0" width="3.3" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="305.8" y="654.0"></text>
+</g>
+<g>
+<title>AbstractQueuedSynchronizer$ConditionObject.await (2,755 samples, 0.35%)</title><rect x="302.8" y="627.0" width="2.1" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="305.8" y="638.0"></text>
+</g>
+<g>
+<title>LockSupport.park (2,755 samples, 0.35%)</title><rect x="302.8" y="611.0" width="2.1" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="305.8" y="622.0"></text>
+</g>
+<g>
+<title>Unsafe.park (2,755 samples, 0.35%)</title><rect x="302.8" y="595.0" width="2.1" height="15" fill="#52e352" rx="2" ry="2"/>
+<text x="305.8" y="606.0"></text>
+</g>
+<g>
+<title>__pthread_cond_wait (2,755 samples, 0.35%)</title><rect x="302.8" y="579.0" width="2.1" height="15" fill="#e45e5e" rx="2" ry="2"/>
+<text x="305.8" y="590.0"></text>
+</g>
+<g>
+<title>Application.start (1,711 samples, 0.22%)</title><rect x="304.9" y="627.0" width="1.2" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="307.9" y="638.0"></text>
+</g>
+<g>
+<title>ApplicationImpl.doStart (1,711 samples, 0.22%)</title><rect x="304.9" y="611.0" width="1.2" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="307.9" y="622.0"></text>
+</g>
+<g>
+<title>HibernateOrmProcessor$startPersistenceUnits-1681903524.deploy (1,105 samples, 0.14%)</title><rect x="304.9" y="595.0" width="0.8" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="307.9" y="606.0"></text>
+</g>
+<g>
+<title>HibernateOrmProcessor$startPersistenceUnits-1681903524.deploy_0 (1,105 samples, 0.14%)</title><rect x="304.9" y="579.0" width="0.8" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="307.9" y="590.0"></text>
+</g>
+<g>
+<title>HibernateOrmRecorder.startAllPersistenceUnits (1,105 samples, 0.14%)</title><rect x="304.9" y="563.0" width="0.8" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="307.9" y="574.0"></text>
+</g>
+<g>
+<title>JPAConfig.startAll (1,105 samples, 0.14%)</title><rect x="304.9" y="547.0" width="0.8" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="307.9" y="558.0"></text>
+</g>
+<g>
+<title>JPAConfig$LazyPersistenceUnit.get (1,105 samples, 0.14%)</title><rect x="304.9" y="531.0" width="0.8" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="307.9" y="542.0"></text>
+</g>
+<g>
+<title>Persistence.createEntityManagerFactory (1,105 samples, 0.14%)</title><rect x="304.9" y="515.0" width="0.8" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="307.9" y="526.0"></text>
+</g>
+<g>
+<title>Persistence.createEntityManagerFactory (1,105 samples, 0.14%)</title><rect x="304.9" y="499.0" width="0.8" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="307.9" y="510.0"></text>
+</g>
+<g>
+<title>FastBootHibernatePersistenceProvider.createEntityManagerFactory (1,104 samples, 0.14%)</title><rect x="304.9" y="483.0" width="0.8" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="307.9" y="494.0"></text>
+</g>
+<g>
+<title>FastBootEntityManagerFactoryBuilder.build (1,080 samples, 0.14%)</title><rect x="304.9" y="467.0" width="0.8" height="15" fill="#50e150" rx="2" ry="2"/>
+<text x="307.9" y="478.0"></text>
+</g>
+<g>
+<title>SessionFactoryImpl.&lt;init&gt; (1,066 samples, 0.14%)</title><rect x="304.9" y="451.0" width="0.8" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="307.9" y="462.0"></text>
+</g>
+<g>
+<title>MetamodelImpl.initialize (775 samples, 0.10%)</title><rect x="304.9" y="435.0" width="0.6" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="307.9" y="446.0"></text>
+</g>
+<g>
+<title>PersisterFactoryImpl.createEntityPersister (441 samples, 0.06%)</title><rect x="305.2" y="419.0" width="0.3" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="308.2" y="430.0"></text>
+</g>
+<g>
+<title>PersisterFactoryImpl.createEntityPersister (428 samples, 0.05%)</title><rect x="305.2" y="403.0" width="0.3" height="15" fill="#5dee5d" rx="2" ry="2"/>
+<text x="308.2" y="414.0"></text>
+</g>
+<g>
+<title>Constructor.newInstance (426 samples, 0.05%)</title><rect x="305.2" y="387.0" width="0.3" height="15" fill="#6cfd6c" rx="2" ry="2"/>
+<text x="308.2" y="398.0"></text>
+</g>
+<g>
+<title>DelegatingConstructorAccessorImpl.newInstance (426 samples, 0.05%)</title><rect x="305.2" y="371.0" width="0.3" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="308.2" y="382.0"></text>
+</g>
+<g>
+<title>GeneratedConstructorAccessor173.newInstance (354 samples, 0.05%)</title><rect x="305.2" y="355.0" width="0.3" height="15" fill="#66f766" rx="2" ry="2"/>
+<text x="308.2" y="366.0"></text>
+</g>
+<g>
+<title>SingleTableEntityPersister.&lt;init&gt; (354 samples, 0.05%)</title><rect x="305.2" y="339.0" width="0.3" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="308.2" y="350.0"></text>
+</g>
+<g>
+<title>Class.newInstance (5,768 samples, 0.74%)</title><rect x="306.1" y="643.0" width="4.3" height="15" fill="#53e453" rx="2" ry="2"/>
+<text x="309.1" y="654.0"></text>
+</g>
+<g>
+<title>Constructor.newInstance (5,768 samples, 0.74%)</title><rect x="306.1" y="627.0" width="4.3" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="309.1" y="638.0"></text>
+</g>
+<g>
+<title>DelegatingConstructorAccessorImpl.newInstance (5,768 samples, 0.74%)</title><rect x="306.1" y="611.0" width="4.3" height="15" fill="#5bec5b" rx="2" ry="2"/>
+<text x="309.1" y="622.0"></text>
+</g>
+<g>
+<title>NativeConstructorAccessorImpl.newInstance (5,768 samples, 0.74%)</title><rect x="306.1" y="595.0" width="4.3" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="309.1" y="606.0"></text>
+</g>
+<g>
+<title>NativeConstructorAccessorImpl.newInstance0 (5,768 samples, 0.74%)</title><rect x="306.1" y="579.0" width="4.3" height="15" fill="#6cfd6c" rx="2" ry="2"/>
+<text x="309.1" y="590.0"></text>
+</g>
+<g>
+<title>ApplicationImpl.&lt;clinit&gt; (5,768 samples, 0.74%)</title><rect x="306.1" y="563.0" width="4.3" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="309.1" y="574.0"></text>
+</g>
+<g>
+<title>ArcProcessor$generateResources-1120260799.deploy (3,707 samples, 0.47%)</title><rect x="306.1" y="547.0" width="2.8" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="309.1" y="558.0"></text>
+</g>
+<g>
+<title>ArcProcessor$generateResources-1120260799.deploy_0 (3,707 samples, 0.47%)</title><rect x="306.1" y="531.0" width="2.8" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="309.1" y="542.0"></text>
+</g>
+<g>
+<title>ArcRecorder.initBeanContainer (3,484 samples, 0.45%)</title><rect x="306.3" y="515.0" width="2.6" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="309.3" y="526.0"></text>
+</g>
+<g>
+<title>HibernateOrmRecorder$4.created (663 samples, 0.08%)</title><rect x="306.3" y="499.0" width="0.5" height="15" fill="#60f160" rx="2" ry="2"/>
+<text x="309.3" y="510.0"></text>
+</g>
+<g>
+<title>PersistenceUnitsHolder.initializeJpa (662 samples, 0.08%)</title><rect x="306.3" y="483.0" width="0.5" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="309.3" y="494.0"></text>
+</g>
+<g>
+<title>PersistenceUnitsHolder.constructMetadataAdvance (662 samples, 0.08%)</title><rect x="306.3" y="467.0" width="0.5" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="309.3" y="478.0"></text>
+</g>
+<g>
+<title>PersistenceUnitsHolder.createMetadata (662 samples, 0.08%)</title><rect x="306.3" y="451.0" width="0.5" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="309.3" y="462.0"></text>
+</g>
+<g>
+<title>FastBootMetadataBuilder.build (521 samples, 0.07%)</title><rect x="306.4" y="435.0" width="0.4" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="309.4" y="446.0"></text>
+</g>
+<g>
+<title>MetadataBuildingProcess.complete (435 samples, 0.06%)</title><rect x="306.4" y="419.0" width="0.4" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="309.4" y="430.0"></text>
+</g>
+<g>
+<title>HibernateValidatorRecorder$1.created (2,817 samples, 0.36%)</title><rect x="306.8" y="499.0" width="2.1" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="309.8" y="510.0"></text>
+</g>
+<g>
+<title>AbstractConfigurationImpl.buildValidatorFactory (2,792 samples, 0.36%)</title><rect x="306.8" y="483.0" width="2.1" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="309.8" y="494.0"></text>
+</g>
+<g>
+<title>PredefinedScopeHibernateValidator.buildValidatorFactory (2,791 samples, 0.36%)</title><rect x="306.8" y="467.0" width="2.1" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="309.8" y="478.0"></text>
+</g>
+<g>
+<title>PredefinedScopeValidatorFactoryImpl.&lt;init&gt; (2,790 samples, 0.36%)</title><rect x="306.8" y="451.0" width="2.1" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="309.8" y="462.0"></text>
+</g>
+<g>
+<title>PredefinedScopeBeanMetaDataManager.&lt;init&gt; (2,720 samples, 0.35%)</title><rect x="306.8" y="435.0" width="2.0" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="309.8" y="446.0"></text>
+</g>
+<g>
+<title>PredefinedScopeBeanMetaDataManager.createBeanMetaData (2,688 samples, 0.34%)</title><rect x="306.8" y="419.0" width="2.0" height="15" fill="#5dee5d" rx="2" ry="2"/>
+<text x="309.8" y="430.0"></text>
+</g>
+<g>
+<title>BeanMetaDataBuilder.add (492 samples, 0.06%)</title><rect x="306.8" y="403.0" width="0.4" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="309.8" y="414.0"></text>
+</g>
+<g>
+<title>BeanMetaDataBuilder.addMetaDataToBuilder (484 samples, 0.06%)</title><rect x="306.9" y="387.0" width="0.3" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="309.9" y="398.0"></text>
+</g>
+<g>
+<title>BeanMetaDataBuilder.build (669 samples, 0.09%)</title><rect x="307.2" y="403.0" width="0.5" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="310.2" y="414.0"></text>
+</g>
+<g>
+<title>BeanMetaDataBuilder$BuilderDelegate.build (582 samples, 0.07%)</title><rect x="307.2" y="387.0" width="0.5" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="310.2" y="398.0"></text>
+</g>
+<g>
+<title>ExecutableMetaData$Builder.build (488 samples, 0.06%)</title><rect x="307.2" y="371.0" width="0.4" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="310.2" y="382.0"></text>
+</g>
+<g>
+<title>PredefinedScopeBeanMetaDataManager.getBeanConfigurationForHierarchy (1,525 samples, 0.19%)</title><rect x="307.7" y="403.0" width="1.1" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="310.7" y="414.0"></text>
+</g>
+<g>
+<title>AnnotationMetaDataProvider.getBeanConfiguration (1,505 samples, 0.19%)</title><rect x="307.7" y="387.0" width="1.1" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="310.7" y="398.0"></text>
+</g>
+<g>
+<title>AnnotationMetaDataProvider.retrieveBeanConfiguration (1,505 samples, 0.19%)</title><rect x="307.7" y="371.0" width="1.1" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="310.7" y="382.0"></text>
+</g>
+<g>
+<title>AnnotationMetaDataProvider.getMethodMetaData (1,137 samples, 0.15%)</title><rect x="308.0" y="355.0" width="0.8" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="311.0" y="366.0"></text>
+</g>
+<g>
+<title>AnnotationMetaDataProvider.getMetaData (1,022 samples, 0.13%)</title><rect x="308.0" y="339.0" width="0.7" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="311.0" y="350.0"></text>
+</g>
+<g>
+<title>AnnotationMetaDataProvider.findExecutableMetaData (1,005 samples, 0.13%)</title><rect x="308.0" y="323.0" width="0.7" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="311.0" y="334.0"></text>
+</g>
+<g>
+<title>AnnotationMetaDataProvider.getParameterMetaData (353 samples, 0.05%)</title><rect x="308.3" y="307.0" width="0.3" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="311.3" y="318.0"></text>
+</g>
+<g>
+<title>HibernateValidatorProcessor$build519115471.deploy (1,342 samples, 0.17%)</title><rect x="309.0" y="547.0" width="1.0" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="312.0" y="558.0"></text>
+</g>
+<g>
+<title>HibernateValidatorProcessor$build519115471.deploy_0 (527 samples, 0.07%)</title><rect x="309.0" y="531.0" width="0.4" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="312.0" y="542.0"></text>
+</g>
+<g>
+<title>Class.forName (521 samples, 0.07%)</title><rect x="309.0" y="515.0" width="0.4" height="15" fill="#53e453" rx="2" ry="2"/>
+<text x="312.0" y="526.0"></text>
+</g>
+<g>
+<title>Class.forName0 (521 samples, 0.07%)</title><rect x="309.0" y="499.0" width="0.4" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="312.0" y="510.0"></text>
+</g>
+<g>
+<title>QuarkusClassLoader.loadClass (409 samples, 0.05%)</title><rect x="309.0" y="483.0" width="0.3" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="312.0" y="494.0"></text>
+</g>
+<g>
+<title>QuarkusClassLoader.loadClass (409 samples, 0.05%)</title><rect x="309.0" y="467.0" width="0.3" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="312.0" y="478.0"></text>
+</g>
+<g>
+<title>HibernateValidatorProcessor$build519115471.deploy_5 (349 samples, 0.04%)</title><rect x="309.7" y="531.0" width="0.3" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="312.7" y="542.0"></text>
+</g>
+<g>
+<title>Class.forName (347 samples, 0.04%)</title><rect x="309.7" y="515.0" width="0.3" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="312.7" y="526.0"></text>
+</g>
+<g>
+<title>Class.forName0 (347 samples, 0.04%)</title><rect x="309.7" y="499.0" width="0.3" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="312.7" y="510.0"></text>
+</g>
+<g>
+<title>UndertowBuildStep$build-649634386.deploy (564 samples, 0.07%)</title><rect x="310.0" y="547.0" width="0.4" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="313.0" y="558.0"></text>
+</g>
+<g>
+<title>UndertowBuildStep$build-649634386.deploy_0 (564 samples, 0.07%)</title><rect x="310.0" y="531.0" width="0.4" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="313.0" y="542.0"></text>
+</g>
+<g>
+<title>UndertowDeploymentRecorder.bootServletContainer (545 samples, 0.07%)</title><rect x="310.0" y="515.0" width="0.4" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="313.0" y="526.0"></text>
+</g>
+<g>
+<title>DeploymentManagerImpl.start (378 samples, 0.05%)</title><rect x="310.1" y="499.0" width="0.3" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="313.1" y="510.0"></text>
+</g>
+<g>
+<title>UndertowDeploymentRecorder$10$1$1.call (378 samples, 0.05%)</title><rect x="310.1" y="483.0" width="0.3" height="15" fill="#5bec5b" rx="2" ry="2"/>
+<text x="313.1" y="494.0"></text>
+</g>
+<g>
+<title>ContextClassLoaderSetupAction$1.call (378 samples, 0.05%)</title><rect x="310.1" y="467.0" width="0.3" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="313.1" y="478.0"></text>
+</g>
+<g>
+<title>ServletRequestContextThreadSetupAction$1.call (378 samples, 0.05%)</title><rect x="310.1" y="451.0" width="0.3" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="313.1" y="462.0"></text>
+</g>
+<g>
+<title>DeploymentManagerImpl$2.call (378 samples, 0.05%)</title><rect x="310.1" y="435.0" width="0.3" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="313.1" y="446.0"></text>
+</g>
+<g>
+<title>DeploymentManagerImpl$2.call (378 samples, 0.05%)</title><rect x="310.1" y="419.0" width="0.3" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="313.1" y="430.0"></text>
+</g>
+<g>
+<title>ManagedServlet.createServlet (378 samples, 0.05%)</title><rect x="310.1" y="403.0" width="0.3" height="15" fill="#52e352" rx="2" ry="2"/>
+<text x="313.1" y="414.0"></text>
+</g>
+<g>
+<title>ManagedServlet$DefaultInstanceStrategy.start (378 samples, 0.05%)</title><rect x="310.1" y="387.0" width="0.3" height="15" fill="#53e453" rx="2" ry="2"/>
+<text x="313.1" y="398.0"></text>
+</g>
+<g>
+<title>LifecyleInterceptorInvocation.proceed (376 samples, 0.05%)</title><rect x="310.1" y="371.0" width="0.3" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="313.1" y="382.0"></text>
+</g>
+<g>
+<title>HttpServletDispatcher.init (376 samples, 0.05%)</title><rect x="310.1" y="355.0" width="0.3" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="313.1" y="366.0"></text>
+</g>
+<g>
+<title>ServletContainerDispatcher.init (373 samples, 0.05%)</title><rect x="310.1" y="339.0" width="0.3" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="313.1" y="350.0"></text>
+</g>
+<g>
+<title>ResteasyDeploymentImpl.start (372 samples, 0.05%)</title><rect x="310.1" y="323.0" width="0.3" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="313.1" y="334.0"></text>
+</g>
+<g>
+<title>ResteasyDeploymentImpl.startInternal (372 samples, 0.05%)</title><rect x="310.1" y="307.0" width="0.3" height="15" fill="#52e352" rx="2" ry="2"/>
+<text x="313.1" y="318.0"></text>
+</g>
+<g>
+<title>ThreadPoolExecutor$Worker.run (17,217 samples, 2.20%)</title><rect x="310.4" y="787.0" width="12.8" height="15" fill="#5ced5c" rx="2" ry="2"/>
+<text x="313.4" y="798.0"></text>
+</g>
+<g>
+<title>ThreadPoolExecutor.runWorker (17,217 samples, 2.20%)</title><rect x="310.4" y="771.0" width="12.8" height="15" fill="#6cfd6c" rx="2" ry="2"/>
+<text x="313.4" y="782.0"></text>
+</g>
+<g>
+<title>FutureTask.run (3,060 samples, 0.39%)</title><rect x="310.4" y="755.0" width="2.3" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="313.4" y="766.0"></text>
+</g>
+<g>
+<title>Executors$RunnableAdapter.call (3,059 samples, 0.39%)</title><rect x="310.4" y="739.0" width="2.3" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="313.4" y="750.0"></text>
+</g>
+<g>
+<title>StartupActionImpl$1.run (3,059 samples, 0.39%)</title><rect x="310.4" y="723.0" width="2.3" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="313.4" y="734.0"></text>
+</g>
+<g>
+<title>QuarkusClassLoader.loadClass (3,058 samples, 0.39%)</title><rect x="310.4" y="707.0" width="2.3" height="15" fill="#66f766" rx="2" ry="2"/>
+<text x="313.4" y="718.0"></text>
+</g>
+<g>
+<title>QuarkusClassLoader.loadClass (3,058 samples, 0.39%)</title><rect x="310.4" y="691.0" width="2.3" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="313.4" y="702.0"></text>
+</g>
+<g>
+<title>QuarkusClassLoader.handleTransform (2,674 samples, 0.34%)</title><rect x="310.6" y="675.0" width="2.0" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="313.6" y="686.0"></text>
+</g>
+<g>
+<title>ClassReader.accept (2,311 samples, 0.30%)</title><rect x="310.6" y="659.0" width="1.7" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="313.6" y="670.0"></text>
+</g>
+<g>
+<title>ClassReader.accept (2,311 samples, 0.30%)</title><rect x="310.6" y="643.0" width="1.7" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="313.6" y="654.0"></text>
+</g>
+<g>
+<title>HibernateEntityEnhancer$HibernateEnhancingClassVisitor.visitEnd (2,288 samples, 0.29%)</title><rect x="310.6" y="627.0" width="1.7" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="313.6" y="638.0"></text>
+</g>
+<g>
+<title>HibernateEntityEnhancer$HibernateEnhancingClassVisitor.hibernateEnhancement (2,234 samples, 0.29%)</title><rect x="310.7" y="611.0" width="1.6" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="313.7" y="622.0"></text>
+</g>
+<g>
+<title>EnhancerImpl.enhance (2,234 samples, 0.29%)</title><rect x="310.7" y="595.0" width="1.6" height="15" fill="#60f160" rx="2" ry="2"/>
+<text x="313.7" y="606.0"></text>
+</g>
+<g>
+<title>ByteBuddyState.rewrite (2,230 samples, 0.29%)</title><rect x="310.7" y="579.0" width="1.6" height="15" fill="#5ced5c" rx="2" ry="2"/>
+<text x="313.7" y="590.0"></text>
+</g>
+<g>
+<title>184901883.apply (780 samples, 0.10%)</title><rect x="310.7" y="563.0" width="0.6" height="15" fill="#f97b7b" rx="2" ry="2"/>
+<text x="313.7" y="574.0"></text>
+</g>
+<g>
+<title>EnhancerImpl.lambda$enhance$0 (780 samples, 0.10%)</title><rect x="310.7" y="547.0" width="0.6" height="15" fill="#5bec5b" rx="2" ry="2"/>
+<text x="313.7" y="558.0"></text>
+</g>
+<g>
+<title>EnhancerImpl.doEnhance (565 samples, 0.07%)</title><rect x="310.8" y="531.0" width="0.5" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="313.8" y="542.0"></text>
+</g>
+<g>
+<title>EnhancerImpl.collectCollectionFields (431 samples, 0.06%)</title><rect x="310.9" y="515.0" width="0.3" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="313.9" y="526.0"></text>
+</g>
+<g>
+<title>ByteBuddyState.make (1,449 samples, 0.19%)</title><rect x="311.3" y="563.0" width="1.0" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="314.3" y="574.0"></text>
+</g>
+<g>
+<title>DynamicType$Builder$AbstractBase$Delegator.make (1,407 samples, 0.18%)</title><rect x="311.3" y="547.0" width="1.0" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="314.3" y="558.0"></text>
+</g>
+<g>
+<title>DynamicType$Builder$AbstractBase.make (1,405 samples, 0.18%)</title><rect x="311.3" y="531.0" width="1.0" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="314.3" y="542.0"></text>
+</g>
+<g>
+<title>RedefinitionDynamicTypeBuilder.make (1,402 samples, 0.18%)</title><rect x="311.3" y="515.0" width="1.0" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="314.3" y="526.0"></text>
+</g>
+<g>
+<title>MethodRegistry$Default.prepare (766 samples, 0.10%)</title><rect x="311.3" y="499.0" width="0.5" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="314.3" y="510.0"></text>
+</g>
+<g>
+<title>TypeWriter$Default.make (619 samples, 0.08%)</title><rect x="311.8" y="499.0" width="0.5" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="314.8" y="510.0"></text>
+</g>
+<g>
+<title>TypeWriter$Default$ForInlining.create (617 samples, 0.08%)</title><rect x="311.8" y="483.0" width="0.5" height="15" fill="#5ced5c" rx="2" ry="2"/>
+<text x="314.8" y="494.0"></text>
+</g>
+<g>
+<title>ClassReader.accept (578 samples, 0.07%)</title><rect x="311.8" y="467.0" width="0.5" height="15" fill="#50e150" rx="2" ry="2"/>
+<text x="314.8" y="478.0"></text>
+</g>
+<g>
+<title>ClassReader.accept (578 samples, 0.07%)</title><rect x="311.8" y="451.0" width="0.5" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="314.8" y="462.0"></text>
+</g>
+<g>
+<title>MetadataAwareClassVisitor.visitEnd (465 samples, 0.06%)</title><rect x="311.9" y="435.0" width="0.3" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="314.9" y="446.0"></text>
+</g>
+<g>
+<title>TypeWriter$Default$ForInlining$WithFullProcessing$RedefinitionClassVisitor.onVisitEnd (464 samples, 0.06%)</title><rect x="311.9" y="419.0" width="0.3" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="314.9" y="430.0"></text>
+</g>
+<g>
+<title>TypeWriter$MethodPool$Record$ForDefinedMethod.apply (423 samples, 0.05%)</title><rect x="311.9" y="403.0" width="0.3" height="15" fill="#53e453" rx="2" ry="2"/>
+<text x="314.9" y="414.0"></text>
+</g>
+<g>
+<title>TypeWriter$MethodPool$Record$ForDefinedMethod$WithBody.applyBody (361 samples, 0.05%)</title><rect x="311.9" y="387.0" width="0.3" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="314.9" y="398.0"></text>
+</g>
+<g>
+<title>HibernateEntityEnhancer.apply (349 samples, 0.04%)</title><rect x="312.3" y="659.0" width="0.3" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="315.3" y="670.0"></text>
+</g>
+<g>
+<title>HibernateEntityEnhancer.apply (348 samples, 0.04%)</title><rect x="312.3" y="643.0" width="0.3" height="15" fill="#51e251" rx="2" ry="2"/>
+<text x="315.3" y="654.0"></text>
+</g>
+<g>
+<title>HibernateEntityEnhancer$HibernateEnhancingClassVisitor.&lt;init&gt; (347 samples, 0.04%)</title><rect x="312.3" y="627.0" width="0.3" height="15" fill="#5dee5d" rx="2" ry="2"/>
+<text x="315.3" y="638.0"></text>
+</g>
+<g>
+<title>BytecodeProviderImpl.getEnhancer (347 samples, 0.04%)</title><rect x="312.3" y="611.0" width="0.3" height="15" fill="#6dfe6d" rx="2" ry="2"/>
+<text x="315.3" y="622.0"></text>
+</g>
+<g>
+<title>EnhancerImpl.&lt;init&gt; (343 samples, 0.04%)</title><rect x="312.3" y="595.0" width="0.3" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="315.3" y="606.0"></text>
+</g>
+<g>
+<title>RunnableErrorForwarder$1.run (6,152 samples, 0.79%)</title><rect x="312.9" y="755.0" width="4.6" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="315.9" y="766.0"></text>
+</g>
+<g>
+<title>DefaultMetadataResolver$ResolveTask.run (6,138 samples, 0.78%)</title><rect x="312.9" y="739.0" width="4.5" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="315.9" y="750.0"></text>
+</g>
+<g>
+<title>BasicRepositoryConnector.get (5,922 samples, 0.76%)</title><rect x="312.9" y="723.0" width="4.4" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="315.9" y="734.0"></text>
+</g>
+<g>
+<title>BasicRepositoryConnector$DirectExecutor.execute (5,904 samples, 0.75%)</title><rect x="312.9" y="707.0" width="4.4" height="15" fill="#52e352" rx="2" ry="2"/>
+<text x="315.9" y="718.0"></text>
+</g>
+<g>
+<title>RunnableErrorForwarder$1.run (5,904 samples, 0.75%)</title><rect x="312.9" y="691.0" width="4.4" height="15" fill="#52e352" rx="2" ry="2"/>
+<text x="315.9" y="702.0"></text>
+</g>
+<g>
+<title>BasicRepositoryConnector$TaskRunner.run (5,904 samples, 0.75%)</title><rect x="312.9" y="675.0" width="4.4" height="15" fill="#5bec5b" rx="2" ry="2"/>
+<text x="315.9" y="686.0"></text>
+</g>
+<g>
+<title>BasicRepositoryConnector$GetTaskRunner.runTask (5,869 samples, 0.75%)</title><rect x="312.9" y="659.0" width="4.4" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="315.9" y="670.0"></text>
+</g>
+<g>
+<title>WagonTransporter.get (5,741 samples, 0.73%)</title><rect x="313.0" y="643.0" width="4.3" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="316.0" y="654.0"></text>
+</g>
+<g>
+<title>WagonTransporter.execute (5,741 samples, 0.73%)</title><rect x="313.0" y="627.0" width="4.3" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="316.0" y="638.0"></text>
+</g>
+<g>
+<title>WagonTransporter$GetTaskRunner.run (5,716 samples, 0.73%)</title><rect x="313.0" y="611.0" width="4.2" height="15" fill="#53e453" rx="2" ry="2"/>
+<text x="316.0" y="622.0"></text>
+</g>
+<g>
+<title>StreamWagon.get (5,715 samples, 0.73%)</title><rect x="313.0" y="595.0" width="4.2" height="15" fill="#51e251" rx="2" ry="2"/>
+<text x="316.0" y="606.0"></text>
+</g>
+<g>
+<title>StreamWagon.getIfNewer (5,715 samples, 0.73%)</title><rect x="313.0" y="579.0" width="4.2" height="15" fill="#51e251" rx="2" ry="2"/>
+<text x="316.0" y="590.0"></text>
+</g>
+<g>
+<title>StreamWagon.getInputStream (5,700 samples, 0.73%)</title><rect x="313.0" y="563.0" width="4.2" height="15" fill="#5dee5d" rx="2" ry="2"/>
+<text x="316.0" y="574.0"></text>
+</g>
+<g>
+<title>AbstractHttpClientWagon.fillInputData (5,654 samples, 0.72%)</title><rect x="313.0" y="547.0" width="4.2" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="316.0" y="558.0"></text>
+</g>
+<g>
+<title>AbstractHttpClientWagon.fillInputData (5,653 samples, 0.72%)</title><rect x="313.0" y="531.0" width="4.2" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="316.0" y="542.0"></text>
+</g>
+<g>
+<title>AbstractHttpClientWagon.execute (5,629 samples, 0.72%)</title><rect x="313.0" y="515.0" width="4.2" height="15" fill="#5dee5d" rx="2" ry="2"/>
+<text x="316.0" y="526.0"></text>
+</g>
+<g>
+<title>CloseableHttpClient.execute (5,621 samples, 0.72%)</title><rect x="313.1" y="499.0" width="4.1" height="15" fill="#53e453" rx="2" ry="2"/>
+<text x="316.1" y="510.0"></text>
+</g>
+<g>
+<title>InternalHttpClient.doExecute (5,621 samples, 0.72%)</title><rect x="313.1" y="483.0" width="4.1" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="316.1" y="494.0"></text>
+</g>
+<g>
+<title>RedirectExec.execute (5,610 samples, 0.72%)</title><rect x="313.1" y="467.0" width="4.1" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="316.1" y="478.0"></text>
+</g>
+<g>
+<title>RetryExec.execute (5,604 samples, 0.72%)</title><rect x="313.1" y="451.0" width="4.1" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="316.1" y="462.0"></text>
+</g>
+<g>
+<title>ProtocolExec.execute (5,603 samples, 0.72%)</title><rect x="313.1" y="435.0" width="4.1" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="316.1" y="446.0"></text>
+</g>
+<g>
+<title>MainClientExec.execute (5,575 samples, 0.71%)</title><rect x="313.1" y="419.0" width="4.1" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="316.1" y="430.0"></text>
+</g>
+<g>
+<title>HttpRequestExecutor.execute (1,029 samples, 0.13%)</title><rect x="313.1" y="403.0" width="0.8" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="316.1" y="414.0"></text>
+</g>
+<g>
+<title>HttpRequestExecutor.doReceiveResponse (962 samples, 0.12%)</title><rect x="313.1" y="387.0" width="0.7" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="316.1" y="398.0"></text>
+</g>
+<g>
+<title>CPoolProxy.receiveResponseHeader (957 samples, 0.12%)</title><rect x="313.1" y="371.0" width="0.7" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="316.1" y="382.0"></text>
+</g>
+<g>
+<title>DefaultBHttpClientConnection.receiveResponseHeader (957 samples, 0.12%)</title><rect x="313.1" y="355.0" width="0.7" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="316.1" y="366.0"></text>
+</g>
+<g>
+<title>AbstractMessageParser.parse (949 samples, 0.12%)</title><rect x="313.1" y="339.0" width="0.7" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="316.1" y="350.0"></text>
+</g>
+<g>
+<title>DefaultHttpResponseParser.parseHead (943 samples, 0.12%)</title><rect x="313.1" y="323.0" width="0.7" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="316.1" y="334.0"></text>
+</g>
+<g>
+<title>DefaultHttpResponseParser.parseHead (943 samples, 0.12%)</title><rect x="313.1" y="307.0" width="0.7" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="316.1" y="318.0"></text>
+</g>
+<g>
+<title>SessionInputBufferImpl.readLine (934 samples, 0.12%)</title><rect x="313.1" y="291.0" width="0.7" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="316.1" y="302.0"></text>
+</g>
+<g>
+<title>SessionInputBufferImpl.fillBuffer (934 samples, 0.12%)</title><rect x="313.1" y="275.0" width="0.7" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="316.1" y="286.0"></text>
+</g>
+<g>
+<title>SessionInputBufferImpl.streamRead (933 samples, 0.12%)</title><rect x="313.1" y="259.0" width="0.7" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="316.1" y="270.0"></text>
+</g>
+<g>
+<title>LoggingInputStream.read (933 samples, 0.12%)</title><rect x="313.1" y="243.0" width="0.7" height="15" fill="#52e352" rx="2" ry="2"/>
+<text x="316.1" y="254.0"></text>
+</g>
+<g>
+<title>SSLSocketImpl$AppInputStream.read (911 samples, 0.12%)</title><rect x="313.1" y="227.0" width="0.7" height="15" fill="#52e352" rx="2" ry="2"/>
+<text x="316.1" y="238.0"></text>
+</g>
+<g>
+<title>SSLSocketImpl.readApplicationRecord (908 samples, 0.12%)</title><rect x="313.1" y="211.0" width="0.7" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="316.1" y="222.0"></text>
+</g>
+<g>
+<title>SSLSocketInputRecord.bytesInCompletePacket (872 samples, 0.11%)</title><rect x="313.1" y="195.0" width="0.7" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="316.1" y="206.0"></text>
+</g>
+<g>
+<title>SSLSocketInputRecord.readHeader (872 samples, 0.11%)</title><rect x="313.1" y="179.0" width="0.7" height="15" fill="#5eef5e" rx="2" ry="2"/>
+<text x="316.1" y="190.0"></text>
+</g>
+<g>
+<title>SSLSocketInputRecord.read (872 samples, 0.11%)</title><rect x="313.1" y="163.0" width="0.7" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="316.1" y="174.0"></text>
+</g>
+<g>
+<title>SocketInputStream.read (872 samples, 0.11%)</title><rect x="313.1" y="147.0" width="0.7" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="316.1" y="158.0"></text>
+</g>
+<g>
+<title>SocketInputStream.read (872 samples, 0.11%)</title><rect x="313.1" y="131.0" width="0.7" height="15" fill="#58e958" rx="2" ry="2"/>
+<text x="316.1" y="142.0"></text>
+</g>
+<g>
+<title>SocketInputStream.socketRead (872 samples, 0.11%)</title><rect x="313.1" y="115.0" width="0.7" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="316.1" y="126.0"></text>
+</g>
+<g>
+<title>SocketInputStream.socketRead0 (872 samples, 0.11%)</title><rect x="313.1" y="99.0" width="0.7" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="316.1" y="110.0"></text>
+</g>
+<g>
+<title>poll (871 samples, 0.11%)</title><rect x="313.1" y="83.0" width="0.7" height="15" fill="#eb6767" rx="2" ry="2"/>
+<text x="316.1" y="94.0"></text>
+</g>
+<g>
+<title>MainClientExec.establishRoute (4,468 samples, 0.57%)</title><rect x="313.9" y="403.0" width="3.3" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="316.9" y="414.0"></text>
+</g>
+<g>
+<title>PoolingHttpClientConnectionManager.connect (4,467 samples, 0.57%)</title><rect x="313.9" y="387.0" width="3.3" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="316.9" y="398.0"></text>
+</g>
+<g>
+<title>DefaultHttpClientConnectionOperator.connect (4,467 samples, 0.57%)</title><rect x="313.9" y="371.0" width="3.3" height="15" fill="#51e251" rx="2" ry="2"/>
+<text x="316.9" y="382.0"></text>
+</g>
+<g>
+<title>SSLConnectionSocketFactory.connectSocket (4,440 samples, 0.57%)</title><rect x="313.9" y="355.0" width="3.3" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="316.9" y="366.0"></text>
+</g>
+<g>
+<title>SSLConnectionSocketFactory.createLayeredSocket (4,341 samples, 0.56%)</title><rect x="313.9" y="339.0" width="3.2" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="316.9" y="350.0"></text>
+</g>
+<g>
+<title>SSLSocketImpl.startHandshake (4,207 samples, 0.54%)</title><rect x="314.0" y="323.0" width="3.1" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="317.0" y="334.0"></text>
+</g>
+<g>
+<title>SSLSocketImpl.readHandshakeRecord (3,230 samples, 0.41%)</title><rect x="314.0" y="307.0" width="2.4" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="317.0" y="318.0"></text>
+</g>
+<g>
+<title>SSLSocketImpl.decode (3,228 samples, 0.41%)</title><rect x="314.0" y="291.0" width="2.4" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="317.0" y="302.0"></text>
+</g>
+<g>
+<title>SSLTransport.decode (3,227 samples, 0.41%)</title><rect x="314.0" y="275.0" width="2.4" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="317.0" y="286.0"></text>
+</g>
+<g>
+<title>SSLSocketInputRecord.decode (1,543 samples, 0.20%)</title><rect x="314.0" y="259.0" width="1.1" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="317.0" y="270.0"></text>
+</g>
+<g>
+<title>SSLSocketInputRecord.readHeader (1,515 samples, 0.19%)</title><rect x="314.0" y="243.0" width="1.1" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="317.0" y="254.0"></text>
+</g>
+<g>
+<title>SSLSocketInputRecord.read (1,515 samples, 0.19%)</title><rect x="314.0" y="227.0" width="1.1" height="15" fill="#53e453" rx="2" ry="2"/>
+<text x="317.0" y="238.0"></text>
+</g>
+<g>
+<title>SocketInputStream.read (1,515 samples, 0.19%)</title><rect x="314.0" y="211.0" width="1.1" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="317.0" y="222.0"></text>
+</g>
+<g>
+<title>SocketInputStream.read (1,515 samples, 0.19%)</title><rect x="314.0" y="195.0" width="1.1" height="15" fill="#67f867" rx="2" ry="2"/>
+<text x="317.0" y="206.0"></text>
+</g>
+<g>
+<title>SocketInputStream.socketRead (1,514 samples, 0.19%)</title><rect x="314.0" y="179.0" width="1.1" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="317.0" y="190.0"></text>
+</g>
+<g>
+<title>SocketInputStream.socketRead0 (1,514 samples, 0.19%)</title><rect x="314.0" y="163.0" width="1.1" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="317.0" y="174.0"></text>
+</g>
+<g>
+<title>[unknown] (1,294 samples, 0.17%)</title><rect x="314.0" y="147.0" width="0.9" height="15" fill="#ed6a6a" rx="2" ry="2"/>
+<text x="317.0" y="158.0"></text>
+</g>
+<g>
+<title>[unknown] (985 samples, 0.13%)</title><rect x="314.0" y="131.0" width="0.7" height="15" fill="#ea6666" rx="2" ry="2"/>
+<text x="317.0" y="142.0"></text>
+</g>
+<g>
+<title>__recv (985 samples, 0.13%)</title><rect x="314.0" y="115.0" width="0.7" height="15" fill="#ee6b6b" rx="2" ry="2"/>
+<text x="317.0" y="126.0"></text>
+</g>
+<g>
+<title>TransportContext.dispatch (1,684 samples, 0.22%)</title><rect x="315.1" y="259.0" width="1.3" height="15" fill="#56e756" rx="2" ry="2"/>
+<text x="318.1" y="270.0"></text>
+</g>
+<g>
+<title>HandshakeContext.dispatch (1,665 samples, 0.21%)</title><rect x="315.1" y="243.0" width="1.3" height="15" fill="#5bec5b" rx="2" ry="2"/>
+<text x="318.1" y="254.0"></text>
+</g>
+<g>
+<title>HandshakeContext.dispatch (1,665 samples, 0.21%)</title><rect x="315.1" y="227.0" width="1.3" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="318.1" y="238.0"></text>
+</g>
+<g>
+<title>SSLHandshake.consume (1,662 samples, 0.21%)</title><rect x="315.1" y="211.0" width="1.3" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="318.1" y="222.0"></text>
+</g>
+<g>
+<title>ServerHelloDone$ServerHelloDoneConsumer.consume (1,166 samples, 0.15%)</title><rect x="315.4" y="195.0" width="0.8" height="15" fill="#60f160" rx="2" ry="2"/>
+<text x="318.4" y="206.0"></text>
+</g>
+<g>
+<title>SSLHandshake.produce (1,163 samples, 0.15%)</title><rect x="315.4" y="179.0" width="0.8" height="15" fill="#50e150" rx="2" ry="2"/>
+<text x="318.4" y="190.0"></text>
+</g>
+<g>
+<title>ClientKeyExchange$ClientKeyExchangeProducer.produce (1,074 samples, 0.14%)</title><rect x="315.4" y="163.0" width="0.8" height="15" fill="#5bec5b" rx="2" ry="2"/>
+<text x="318.4" y="174.0"></text>
+</g>
+<g>
+<title>ECDHClientKeyExchange$ECDHEClientKeyExchangeProducer.produce (1,070 samples, 0.14%)</title><rect x="315.4" y="147.0" width="0.8" height="15" fill="#5bec5b" rx="2" ry="2"/>
+<text x="318.4" y="158.0"></text>
+</g>
+<g>
+<title>ECDHKeyExchange$ECDHEKAKeyDerivation.deriveKey (694 samples, 0.09%)</title><rect x="315.4" y="131.0" width="0.5" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="318.4" y="142.0"></text>
+</g>
+<g>
+<title>ECDHKeyExchange$ECDHEKAKeyDerivation.t12DeriveKey (694 samples, 0.09%)</title><rect x="315.4" y="115.0" width="0.5" height="15" fill="#66f766" rx="2" ry="2"/>
+<text x="318.4" y="126.0"></text>
+</g>
+<g>
+<title>KeyAgreement.generateSecret (675 samples, 0.09%)</title><rect x="315.4" y="99.0" width="0.5" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="318.4" y="110.0"></text>
+</g>
+<g>
+<title>ECDHKeyAgreement.engineGenerateSecret (674 samples, 0.09%)</title><rect x="315.4" y="83.0" width="0.5" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="318.4" y="94.0"></text>
+</g>
+<g>
+<title>ECDHKeyAgreement.engineGenerateSecret (674 samples, 0.09%)</title><rect x="315.4" y="67.0" width="0.5" height="15" fill="#60f160" rx="2" ry="2"/>
+<text x="318.4" y="78.0"></text>
+</g>
+<g>
+<title>ECDHKeyAgreement.deriveKeyImpl (674 samples, 0.09%)</title><rect x="315.4" y="51.0" width="0.5" height="15" fill="#6bfc6b" rx="2" ry="2"/>
+<text x="318.4" y="62.0"></text>
+</g>
+<g>
+<title>ECDHKeyAgreement.validate (340 samples, 0.04%)</title><rect x="315.4" y="35.0" width="0.2" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="318.4" y="46.0"></text>
+</g>
+<g>
+<title>ECDHKeyExchange$ECDHEPossession.&lt;init&gt; (356 samples, 0.05%)</title><rect x="315.9" y="131.0" width="0.2" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="318.9" y="142.0"></text>
+</g>
+<g>
+<title>KeyPairGenerator$Delegate.generateKeyPair (352 samples, 0.05%)</title><rect x="315.9" y="115.0" width="0.2" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="318.9" y="126.0"></text>
+</g>
+<g>
+<title>ECKeyPairGenerator.generateKeyPair (352 samples, 0.05%)</title><rect x="315.9" y="99.0" width="0.2" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="318.9" y="110.0"></text>
+</g>
+<g>
+<title>ECKeyPairGenerator.generateKeyPairImpl (352 samples, 0.05%)</title><rect x="315.9" y="83.0" width="0.2" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="318.9" y="94.0"></text>
+</g>
+<g>
+<title>TransportContext.kickstart (977 samples, 0.12%)</title><rect x="316.4" y="307.0" width="0.7" height="15" fill="#50e150" rx="2" ry="2"/>
+<text x="319.4" y="318.0"></text>
+</g>
+<g>
+<title>ClientHandshakeContext.&lt;init&gt; (454 samples, 0.06%)</title><rect x="316.4" y="291.0" width="0.3" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="319.4" y="302.0"></text>
+</g>
+<g>
+<title>HandshakeContext.&lt;init&gt; (453 samples, 0.06%)</title><rect x="316.4" y="275.0" width="0.3" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="319.4" y="286.0"></text>
+</g>
+<g>
+<title>HandshakeContext.getActiveCipherSuites (398 samples, 0.05%)</title><rect x="316.4" y="259.0" width="0.3" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="319.4" y="270.0"></text>
+</g>
+<g>
+<title>HandshakeContext.isActivatable (389 samples, 0.05%)</title><rect x="316.4" y="243.0" width="0.3" height="15" fill="#63f463" rx="2" ry="2"/>
+<text x="319.4" y="254.0"></text>
+</g>
+<g>
+<title>SSLAlgorithmConstraints.permits (372 samples, 0.05%)</title><rect x="316.4" y="227.0" width="0.2" height="15" fill="#5ff05f" rx="2" ry="2"/>
+<text x="319.4" y="238.0"></text>
+</g>
+<g>
+<title>ClientHandshakeContext.kickstart (522 samples, 0.07%)</title><rect x="316.7" y="291.0" width="0.4" height="15" fill="#5ced5c" rx="2" ry="2"/>
+<text x="319.7" y="302.0"></text>
+</g>
+<g>
+<title>SSLHandshake.kickstart (522 samples, 0.07%)</title><rect x="316.7" y="275.0" width="0.4" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="319.7" y="286.0"></text>
+</g>
+<g>
+<title>ClientHello$ClientHelloKickstartProducer.produce (521 samples, 0.07%)</title><rect x="316.7" y="259.0" width="0.4" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="319.7" y="270.0"></text>
+</g>
+<g>
+<title>SSLExtensions.produce (483 samples, 0.06%)</title><rect x="316.7" y="243.0" width="0.4" height="15" fill="#68f968" rx="2" ry="2"/>
+<text x="319.7" y="254.0"></text>
+</g>
+<g>
+<title>SSLExtension.produce (482 samples, 0.06%)</title><rect x="316.7" y="227.0" width="0.4" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="319.7" y="238.0"></text>
+</g>
+<g>
+<title>KeyShareExtension$CHKeyShareProducer.produce (379 samples, 0.05%)</title><rect x="316.7" y="211.0" width="0.3" height="15" fill="#54e554" rx="2" ry="2"/>
+<text x="319.7" y="222.0"></text>
+</g>
+<g>
+<title>SSLKeyExchange.createPossessions (377 samples, 0.05%)</title><rect x="316.7" y="195.0" width="0.3" height="15" fill="#50e150" rx="2" ry="2"/>
+<text x="319.7" y="206.0"></text>
+</g>
+<g>
+<title>SSLKeyExchange$T13KeyAgreement.createPossession (377 samples, 0.05%)</title><rect x="316.7" y="179.0" width="0.3" height="15" fill="#51e251" rx="2" ry="2"/>
+<text x="319.7" y="190.0"></text>
+</g>
+<g>
+<title>ECDHKeyExchange$ECDHEPossession.&lt;init&gt; (377 samples, 0.05%)</title><rect x="316.7" y="163.0" width="0.3" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="319.7" y="174.0"></text>
+</g>
+<g>
+<title>KeyPairGenerator$Delegate.generateKeyPair (371 samples, 0.05%)</title><rect x="316.7" y="147.0" width="0.3" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="319.7" y="158.0"></text>
+</g>
+<g>
+<title>ECKeyPairGenerator.generateKeyPair (371 samples, 0.05%)</title><rect x="316.7" y="131.0" width="0.3" height="15" fill="#62f362" rx="2" ry="2"/>
+<text x="319.7" y="142.0"></text>
+</g>
+<g>
+<title>ECKeyPairGenerator.generateKeyPairImpl (371 samples, 0.05%)</title><rect x="316.7" y="115.0" width="0.3" height="15" fill="#65f665" rx="2" ry="2"/>
+<text x="319.7" y="126.0"></text>
+</g>
+<g>
+<title>ThreadPoolExecutor.getTask (7,679 samples, 0.98%)</title><rect x="317.5" y="755.0" width="5.7" height="15" fill="#61f261" rx="2" ry="2"/>
+<text x="320.5" y="766.0"></text>
+</g>
+<g>
+<title>LinkedBlockingQueue.take (521 samples, 0.07%)</title><rect x="317.5" y="739.0" width="0.4" height="15" fill="#50e150" rx="2" ry="2"/>
+<text x="320.5" y="750.0"></text>
+</g>
+<g>
+<title>AbstractQueuedSynchronizer$ConditionObject.await (519 samples, 0.07%)</title><rect x="317.5" y="723.0" width="0.4" height="15" fill="#50e150" rx="2" ry="2"/>
+<text x="320.5" y="734.0"></text>
+</g>
+<g>
+<title>LockSupport.park (509 samples, 0.07%)</title><rect x="317.5" y="707.0" width="0.4" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="320.5" y="718.0"></text>
+</g>
+<g>
+<title>Unsafe.park (500 samples, 0.06%)</title><rect x="317.5" y="691.0" width="0.4" height="15" fill="#57e857" rx="2" ry="2"/>
+<text x="320.5" y="702.0"></text>
+</g>
+<g>
+<title>__pthread_cond_wait (498 samples, 0.06%)</title><rect x="317.5" y="675.0" width="0.4" height="15" fill="#f47474" rx="2" ry="2"/>
+<text x="320.5" y="686.0"></text>
+</g>
+<g>
+<title>ScheduledThreadPoolExecutor$DelayedWorkQueue.take (7,157 samples, 0.92%)</title><rect x="317.9" y="739.0" width="5.3" height="15" fill="#69fa69" rx="2" ry="2"/>
+<text x="320.9" y="750.0"></text>
+</g>
+<g>
+<title>ScheduledThreadPoolExecutor$DelayedWorkQueue.take (7,157 samples, 0.92%)</title><rect x="317.9" y="723.0" width="5.3" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="320.9" y="734.0"></text>
+</g>
+<g>
+<title>AbstractQueuedSynchronizer$ConditionObject.awaitNanos (7,157 samples, 0.92%)</title><rect x="317.9" y="707.0" width="5.3" height="15" fill="#5aeb5a" rx="2" ry="2"/>
+<text x="320.9" y="718.0"></text>
+</g>
+<g>
+<title>LockSupport.parkNanos (7,155 samples, 0.91%)</title><rect x="317.9" y="691.0" width="5.3" height="15" fill="#64f564" rx="2" ry="2"/>
+<text x="320.9" y="702.0"></text>
+</g>
+<g>
+<title>Unsafe.park (7,155 samples, 0.91%)</title><rect x="317.9" y="675.0" width="5.3" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="320.9" y="686.0"></text>
+</g>
+<g>
+<title>__pthread_cond_timedwait (7,155 samples, 0.91%)</title><rect x="317.9" y="659.0" width="5.3" height="15" fill="#f47474" rx="2" ry="2"/>
+<text x="320.9" y="670.0"></text>
+</g>
+<g>
+<title>TimerThread.run (3,228 samples, 0.41%)</title><rect x="323.2" y="803.0" width="2.4" height="15" fill="#59ea59" rx="2" ry="2"/>
+<text x="326.2" y="814.0"></text>
+</g>
+<g>
+<title>TimerThread.mainLoop (3,228 samples, 0.41%)</title><rect x="323.2" y="787.0" width="2.4" height="15" fill="#6afb6a" rx="2" ry="2"/>
+<text x="326.2" y="798.0"></text>
+</g>
+<g>
+<title>Object.wait (3,228 samples, 0.41%)</title><rect x="323.2" y="771.0" width="2.4" height="15" fill="#55e655" rx="2" ry="2"/>
+<text x="326.2" y="782.0"></text>
+</g>
+<g>
+<title>__pthread_cond_timedwait (3,228 samples, 0.41%)</title><rect x="323.2" y="755.0" width="2.4" height="15" fill="#e56060" rx="2" ry="2"/>
+<text x="326.2" y="766.0"></text>
+</g>
+<g>
+<title>[unknown_Java] (384 samples, 0.05%)</title><rect x="325.7" y="803.0" width="0.3" height="15" fill="#f06e6e" rx="2" ry="2"/>
+<text x="328.7" y="814.0"></text>
+</g>
+<g>
+<title>__pthread_cond_timedwait (111,896 samples, 14.31%)</title><rect x="326.1" y="803.0" width="83.0" height="15" fill="#f97b7b" rx="2" ry="2"/>
+<text x="329.1" y="814.0">__pthread..</text>
+</g>
+<g>
+<title>__pthread_cond_wait (71,663 samples, 9.16%)</title><rect x="409.1" y="803.0" width="53.1" height="15" fill="#f57575" rx="2" ry="2"/>
+<text x="412.1" y="814.0">__pth..</text>
+</g>
+<g>
+<title>do_futex_wait.constprop.1 (140,426 samples, 17.95%)</title><rect x="462.3" y="803.0" width="104.1" height="15" fill="#fc7e7e" rx="2" ry="2"/>
+<text x="465.3" y="814.0">do_futex_wai..</text>
+</g>
+<g>
+<title>pthread_join (23,788 samples, 3.04%)</title><rect x="566.6" y="803.0" width="17.6" height="15" fill="#e66161" rx="2" ry="2"/>
+<text x="569.6" y="814.0"></text>
+</g>
+<g>
+<title>start_thread (7,741 samples, 0.99%)</title><rect x="584.2" y="803.0" width="5.8" height="15" fill="#ec6969" rx="2" ry="2"/>
+<text x="587.2" y="814.0"></text>
+</g>
+<g>
+<title>thread_native_entry(Thread*) (7,740 samples, 0.99%)</title><rect x="584.2" y="787.0" width="5.8" height="15" fill="#f67676" rx="2" ry="2"/>
+<text x="587.2" y="798.0"></text>
+</g>
+<g>
+<title>Thread::call_run() (7,739 samples, 0.99%)</title><rect x="584.2" y="771.0" width="5.8" height="15" fill="#e2e244" rx="2" ry="2"/>
+<text x="587.2" y="782.0"></text>
+</g>
+<g>
+<title>GangWorker::loop() (2,122 samples, 0.27%)</title><rect x="584.2" y="755.0" width="1.6" height="15" fill="#d8d841" rx="2" ry="2"/>
+<text x="587.2" y="766.0"></text>
+</g>
+<g>
+<title>G1CMConcurrentMarkingTask::work(unsigned int) (431 samples, 0.06%)</title><rect x="584.2" y="739.0" width="0.4" height="15" fill="#dede43" rx="2" ry="2"/>
+<text x="587.2" y="750.0"></text>
+</g>
+<g>
+<title>G1CMTask::do_marking_step(double, bool, bool) (418 samples, 0.05%)</title><rect x="584.3" y="723.0" width="0.3" height="15" fill="#e3e345" rx="2" ry="2"/>
+<text x="587.3" y="734.0"></text>
+</g>
+<g>
+<title>G1CMBitMapClosure::do_addr(HeapWord*) (353 samples, 0.05%)</title><rect x="584.3" y="707.0" width="0.2" height="15" fill="#cece3e" rx="2" ry="2"/>
+<text x="587.3" y="718.0"></text>
+</g>
+<g>
+<title>G1ParTask::work(unsigned int) (1,097 samples, 0.14%)</title><rect x="584.7" y="739.0" width="0.8" height="15" fill="#e3e345" rx="2" ry="2"/>
+<text x="587.7" y="750.0"></text>
+</g>
+<g>
+<title>G1ParEvacuateFollowersClosure::do_void() (483 samples, 0.06%)</title><rect x="584.7" y="723.0" width="0.4" height="15" fill="#d8d841" rx="2" ry="2"/>
+<text x="587.7" y="734.0"></text>
+</g>
+<g>
+<title>G1ParScanThreadState::trim_queue() (441 samples, 0.06%)</title><rect x="584.7" y="707.0" width="0.3" height="15" fill="#e4e445" rx="2" ry="2"/>
+<text x="587.7" y="718.0"></text>
+</g>
+<g>
+<title>JavaThread::thread_main_inner() (5,459 samples, 0.70%)</title><rect x="585.8" y="755.0" width="4.1" height="15" fill="#d6d640" rx="2" ry="2"/>
+<text x="588.8" y="766.0"></text>
+</g>
+<g>
+<title>CompileBroker::compiler_thread_loop() (5,235 samples, 0.67%)</title><rect x="585.8" y="739.0" width="3.9" height="15" fill="#d8d841" rx="2" ry="2"/>
+<text x="588.8" y="750.0"></text>
+</g>
+<g>
+<title>CompileBroker::invoke_compiler_on_method(CompileTask*) (5,111 samples, 0.65%)</title><rect x="585.8" y="723.0" width="3.8" height="15" fill="#e4e445" rx="2" ry="2"/>
+<text x="588.8" y="734.0"></text>
+</g>
+<g>
+<title>Compiler::compile_method(ciEnv*, ciMethod*, int, DirectiveSet*) (4,862 samples, 0.62%)</title><rect x="585.9" y="707.0" width="3.6" height="15" fill="#dfdf43" rx="2" ry="2"/>
+<text x="588.9" y="718.0"></text>
+</g>
+<g>
+<title>Compilation::Compilation(AbstractCompiler*, ciEnv*, ciMethod*, int, BufferBlob*, DirectiveSet*) (4,851 samples, 0.62%)</title><rect x="585.9" y="691.0" width="3.6" height="15" fill="#e0e044" rx="2" ry="2"/>
+<text x="588.9" y="702.0"></text>
+</g>
+<g>
+<title>Compilation::compile_method() (4,832 samples, 0.62%)</title><rect x="585.9" y="675.0" width="3.6" height="15" fill="#d9d941" rx="2" ry="2"/>
+<text x="588.9" y="686.0"></text>
+</g>
+<g>
+<title>Compilation::compile_java_method() (4,457 samples, 0.57%)</title><rect x="585.9" y="659.0" width="3.3" height="15" fill="#dbdb42" rx="2" ry="2"/>
+<text x="588.9" y="670.0"></text>
+</g>
+<g>
+<title>Compilation::build_hir() [clone .part.94] (2,362 samples, 0.30%)</title><rect x="585.9" y="643.0" width="1.8" height="15" fill="#e5e545" rx="2" ry="2"/>
+<text x="588.9" y="654.0"></text>
+</g>
+<g>
+<title>IR::IR(Compilation*, ciMethod*, int) (1,870 samples, 0.24%)</title><rect x="586.0" y="627.0" width="1.4" height="15" fill="#e4e445" rx="2" ry="2"/>
+<text x="589.0" y="638.0"></text>
+</g>
+<g>
+<title>GraphBuilder::GraphBuilder(Compilation*, IRScope*) (1,852 samples, 0.24%)</title><rect x="586.0" y="611.0" width="1.4" height="15" fill="#d1d13f" rx="2" ry="2"/>
+<text x="589.0" y="622.0"></text>
+</g>
+<g>
+<title>GraphBuilder::iterate_all_blocks(bool) (1,635 samples, 0.21%)</title><rect x="586.2" y="595.0" width="1.2" height="15" fill="#e2e244" rx="2" ry="2"/>
+<text x="589.2" y="606.0"></text>
+</g>
+<g>
+<title>GraphBuilder::iterate_bytecodes_for_block(int) (1,602 samples, 0.20%)</title><rect x="586.2" y="579.0" width="1.2" height="15" fill="#d9d941" rx="2" ry="2"/>
+<text x="589.2" y="590.0"></text>
+</g>
+<g>
+<title>GraphBuilder::invoke(Bytecodes::Code) (1,285 samples, 0.16%)</title><rect x="586.4" y="563.0" width="0.9" height="15" fill="#dbdb42" rx="2" ry="2"/>
+<text x="589.4" y="574.0"></text>
+</g>
+<g>
+<title>GraphBuilder::try_inline(ciMethod*, bool, bool, Bytecodes::Code, Instruction*) (973 samples, 0.12%)</title><rect x="586.4" y="547.0" width="0.7" height="15" fill="#dede43" rx="2" ry="2"/>
+<text x="589.4" y="558.0"></text>
+</g>
+<g>
+<title>GraphBuilder::try_inline_full(ciMethod*, bool, bool, Bytecodes::Code, Instruction*) (955 samples, 0.12%)</title><rect x="586.4" y="531.0" width="0.7" height="15" fill="#dfdf43" rx="2" ry="2"/>
+<text x="589.4" y="542.0"></text>
+</g>
+<g>
+<title>GraphBuilder::iterate_all_blocks(bool) (820 samples, 0.10%)</title><rect x="586.4" y="515.0" width="0.6" height="15" fill="#dfdf43" rx="2" ry="2"/>
+<text x="589.4" y="526.0"></text>
+</g>
+<g>
+<title>GraphBuilder::iterate_bytecodes_for_block(int) (802 samples, 0.10%)</title><rect x="586.4" y="499.0" width="0.6" height="15" fill="#cfcf3e" rx="2" ry="2"/>
+<text x="589.4" y="510.0"></text>
+</g>
+<g>
+<title>GraphBuilder::invoke(Bytecodes::Code) (615 samples, 0.08%)</title><rect x="586.5" y="483.0" width="0.5" height="15" fill="#dada42" rx="2" ry="2"/>
+<text x="589.5" y="494.0"></text>
+</g>
+<g>
+<title>GraphBuilder::try_inline(ciMethod*, bool, bool, Bytecodes::Code, Instruction*) (449 samples, 0.06%)</title><rect x="586.5" y="467.0" width="0.4" height="15" fill="#d6d640" rx="2" ry="2"/>
+<text x="589.5" y="478.0"></text>
+</g>
+<g>
+<title>GraphBuilder::try_inline_full(ciMethod*, bool, bool, Bytecodes::Code, Instruction*) (435 samples, 0.06%)</title><rect x="586.5" y="451.0" width="0.4" height="15" fill="#cdcd3d" rx="2" ry="2"/>
+<text x="589.5" y="462.0"></text>
+</g>
+<g>
+<title>GraphBuilder::iterate_all_blocks(bool) (363 samples, 0.05%)</title><rect x="586.5" y="435.0" width="0.3" height="15" fill="#dfdf43" rx="2" ry="2"/>
+<text x="589.5" y="446.0"></text>
+</g>
+<g>
+<title>GraphBuilder::iterate_bytecodes_for_block(int) (356 samples, 0.05%)</title><rect x="586.6" y="419.0" width="0.2" height="15" fill="#e1e144" rx="2" ry="2"/>
+<text x="589.6" y="430.0"></text>
+</g>
+<g>
+<title>Compilation::emit_code_body() (567 samples, 0.07%)</title><rect x="587.7" y="643.0" width="0.4" height="15" fill="#e2e244" rx="2" ry="2"/>
+<text x="590.7" y="654.0"></text>
+</g>
+<g>
+<title>LIR_Assembler::emit_code(BlockList*) (387 samples, 0.05%)</title><rect x="587.7" y="627.0" width="0.3" height="15" fill="#dbdb42" rx="2" ry="2"/>
+<text x="590.7" y="638.0"></text>
+</g>
+<g>
+<title>Compilation::emit_lir() (1,495 samples, 0.19%)</title><rect x="588.1" y="643.0" width="1.1" height="15" fill="#d4d440" rx="2" ry="2"/>
+<text x="591.1" y="654.0"></text>
+</g>
+<g>
+<title>BlockList::iterate_forward(BlockClosure*) (357 samples, 0.05%)</title><rect x="588.1" y="627.0" width="0.2" height="15" fill="#dada42" rx="2" ry="2"/>
+<text x="591.1" y="638.0"></text>
+</g>
+<g>
+<title>LIRGenerator::block_do(BlockBegin*) (341 samples, 0.04%)</title><rect x="588.1" y="611.0" width="0.2" height="15" fill="#d9d941" rx="2" ry="2"/>
+<text x="591.1" y="622.0"></text>
+</g>
+<g>
+<title>LinearScan::do_linear_scan() (1,112 samples, 0.14%)</title><rect x="588.4" y="627.0" width="0.8" height="15" fill="#dbdb42" rx="2" ry="2"/>
+<text x="591.4" y="638.0"></text>
+</g>
+<g>
+<title>LinearScan::allocate_registers() (338 samples, 0.04%)</title><rect x="588.4" y="611.0" width="0.2" height="15" fill="#d8d841" rx="2" ry="2"/>
+<text x="591.4" y="622.0"></text>
+</g>
+</g>
+</svg>
